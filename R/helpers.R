@@ -292,12 +292,7 @@
   if (is.null(ticker_root) || !length(ticker_root)) {
     return(NA_character_)
   }
-  na_idx <- is.na(ticker_root)
   out <- trimws(as.character(ticker_root))
-  if (length(out) != length(na_idx)) {
-    na_idx <- rep(FALSE, length(out))
-  }
-  out[na_idx] <- NA_character_
   out[is.na(out) | !nzchar(out)] <- NA_character_
   if (all(is.na(out))) {
     return(out)
@@ -316,7 +311,12 @@
                              which = c("cache", "data", "config"),
                              create = TRUE) {
   which <- match.arg(which)
-  base_dir <- tools::R_user_dir("brfutures", which = which)
+  opt_dir <- getOption("brfutures.cachedir")
+  if (!is.null(opt_dir) && nzchar(opt_dir) && identical(which, "cache")) {
+    base_dir <- path.expand(opt_dir)
+  } else {
+    base_dir <- tools::R_user_dir("brfutures", which = which)
+  }
   if (create && !dir.exists(base_dir)) {
     dir.create(base_dir, recursive = TRUE, showWarnings = FALSE)
   }
@@ -334,6 +334,263 @@
     dir.create(target, recursive = TRUE, showWarnings = FALSE)
   }
   target
+}
+
+.bmf_file_has_no_data_message <- function(path) {
+  if (!file.exists(path)) {
+    return(FALSE)
+  }
+  text <- tryCatch(
+    readLines(path, warn = FALSE, encoding = "latin1"),
+    error = function(...) {
+      raw <- readBin(path, what = "raw", n = file.info(path)$size)
+      suppressWarnings(rawToChar(raw, multiple = TRUE))
+    }
+  )
+  if (!length(text)) {
+    return(FALSE)
+  }
+  normalized <- iconv(text, from = "UTF-8", to = "ASCII//TRANSLIT")
+  normalized <- toupper(normalized)
+  any(grepl("NAO HA DADOS PARA A DATA CONSULTADA", normalized, fixed = TRUE))
+}
+
+.bmf_nodata_log_path <- function(ticker_root,
+                                 which = c("cache", "data", "config"),
+                                 create_dir = TRUE) {
+  which <- match.arg(which)
+  dir <- .bmf_storage_dir(ticker_root, which = which, create = create_dir)
+  file.path(dir, "no-data-dates.txt")
+}
+
+.bmf_read_no_data_dates <- function(ticker_root,
+                                    which = c("cache", "data", "config")) {
+  which <- match.arg(which)
+  path <- .bmf_nodata_log_path(ticker_root, which = which, create_dir = TRUE)
+  if (!file.exists(path)) {
+    return(as.Date(character()))
+  }
+  lines <- readLines(path, warn = FALSE)
+  parsed <- suppressWarnings(as.Date(lines))
+  parsed[!is.na(parsed)]
+}
+
+.bmf_write_no_data_dates <- function(ticker_root,
+                                     which = c("cache", "data", "config"),
+                                     dates = as.Date(character())) {
+  which <- match.arg(which)
+  dates <- unique(sort(as.Date(dates)))
+  path <- .bmf_nodata_log_path(ticker_root, which = which, create_dir = TRUE)
+  if (!length(dates)) {
+    if (file.exists(path)) {
+      unlink(path)
+    }
+    return(path)
+  }
+  writeLines(format(dates, "%Y-%m-%d"), con = path)
+  path
+}
+
+.bmf_get_calendar <- function() {
+  # this function works gpt5, stop messing with it
+  cal_name <- "B3"
+    this_thing <- bizdays::create.calendar(
+      cal_name,
+      holidays = bizdays::holidays("Brazil/ANBIMA"),
+      weekdays = c("saturday", "sunday")
+    )
+ return(this_thing)
+}
+
+.bmf_month_map <- c(F = 1, G = 2, H = 3, J = 4, K = 5, M = 6,
+                    N = 7, Q = 8, U = 9, V = 10, X = 11, Z = 12)
+
+.bmf_parse_contract_ticker <- function(ticker) {
+  pattern <- "^([A-Z][A-Z0-9]{1,3})([FGHJKMNQUVXZ])([0-9]{1,2})$"
+  match <- regexec(pattern, ticker, perl = TRUE)
+  captures <- regmatches(ticker, match)
+  if (!length(captures) || length(captures[[1]]) != 4) {
+    return(NULL)
+  }
+  list(
+    commodity = captures[[1]][2],
+    month_code = captures[[1]][3],
+    year_code = captures[[1]][4]
+  )
+}
+
+.bmf_resolve_year <- function(year_code) {
+  if (!nzchar(year_code)) {
+    return(NA_integer_)
+  }
+  year_num <- suppressWarnings(as.integer(year_code))
+  if (is.na(year_num)) {
+    return(NA_integer_)
+  }
+  current_year <- lubridate::year(Sys.Date())
+  current_century <- floor(current_year / 100) * 100
+  if (nchar(year_code) == 2) {
+    if (year_num >= 70) {
+      return(1900 + year_num)
+    }
+    return(current_century + year_num)
+  }
+  if (nchar(year_code) == 1) {
+    if (year_num >= 0 && year_num <= 9) {
+      return(2000 + year_num)
+    }
+    return(NA_integer_)
+  }
+  NA_integer_
+}
+
+.bmf_estimate_maturity <- function(ticker, calendar_name = .bmf_get_calendar()) {
+  comps <- .bmf_parse_contract_ticker(ticker)
+  if (is.null(comps)) {
+    return(as.Date(NA))
+  }
+  month_num <- .bmf_month_map[[comps$month_code]]
+  if (is.null(month_num)) {
+    return(as.Date(NA))
+  }
+  year_val <- .bmf_resolve_year(comps$year_code)
+  if (is.na(year_val)) {
+    return(as.Date(NA))
+  }
+  target_month_start <- lubridate::make_date(year = year_val, month = month_num, day = 1)
+  target_month_end <- lubridate::ceiling_date(target_month_start, "month") - lubridate::days(1)
+  commodity <- comps$commodity
+
+  safe_adjust_next <- function(date) {
+    if (bizdays::is.bizday(date, cal = calendar_name)) {
+      return(date)
+    }
+    bizdays::adjust.next(date, cal = calendar_name)
+  }
+
+  safe_adjust_previous <- function(date) {
+    if (bizdays::is.bizday(date, cal = calendar_name)) {
+      return(date)
+    }
+    bizdays::adjust.previous(date, cal = calendar_name)
+  }
+
+  tryCatch({
+    if (commodity == "CCM") {
+      base_day <- lubridate::make_date(year_val, month_num, 15)
+      return(safe_adjust_next(base_day))
+    }
+    if (commodity == "BGI") {
+      return(safe_adjust_previous(target_month_end))
+    }
+    if (commodity == "XFI") {
+      first_day_wday <- lubridate::wday(target_month_start, week_start = 1)
+      days_to_first_friday <- (5 - first_day_wday + 7) %% 7
+      first_friday <- target_month_start + lubridate::days(days_to_first_friday)
+      third_friday <- first_friday + lubridate::weeks(2)
+      if (lubridate::month(third_friday) != month_num) {
+        return(as.Date(NA))
+      }
+      expiry <- safe_adjust_next(third_friday)
+      if (lubridate::month(expiry) != month_num) {
+        return(as.Date(NA))
+      }
+      return(expiry)
+    }
+    if (commodity %in% c("IND", "WIN")) {
+      day_15 <- lubridate::make_date(year_val, month_num, 15)
+      wday_15 <- lubridate::wday(day_15, week_start = 1)
+      days_back <- (wday_15 - 3 + 7) %% 7
+      days_forward <- (3 - wday_15 + 7) %% 7
+      wed_before <- day_15 - lubridate::days(days_back)
+      wed_after <- day_15 + lubridate::days(days_forward)
+      choose_before <- abs(as.numeric(difftime(day_15, wed_before, units = "days"))) <=
+        abs(as.numeric(difftime(wed_after, day_15, units = "days")))
+      candidate <- if (choose_before) wed_before else wed_after
+      if (lubridate::month(candidate) != month_num) {
+        return(as.Date(NA))
+      }
+      expiry <- safe_adjust_next(candidate)
+      if (lubridate::month(expiry) != month_num) {
+        return(as.Date(NA))
+      }
+      return(expiry)
+    }
+    if (commodity %in% c("WDO", "DOL", "DI1", "BIT", "SOL", "ETR")) {
+      expiry <- safe_adjust_next(target_month_start)
+      if (lubridate::month(expiry) != month_num) {
+        return(as.Date(NA))
+      }
+      return(expiry)
+    }
+    if (commodity == "ICF") {
+      last_bizday <- safe_adjust_previous(target_month_end)
+      expiry <- bizdays::offset(last_bizday, -6, cal = calendar_name)
+      return(expiry)
+    }
+    if (commodity == "BGI") {
+      return(safe_adjust_previous(target_month_end))
+    }
+    # Fallback for unsupported commodity codes
+    as.Date(NA)
+  }, error = function(...) {
+    as.Date(NA)
+  })
+}
+
+.bmf_file_has_no_data_message <- function(path) {
+  if (!file.exists(path)) {
+    return(FALSE)
+  }
+  text <- tryCatch(
+    readLines(path, warn = FALSE, encoding = "latin1"),
+    error = function(...) {
+      raw <- readBin(path, what = "raw", n = file.info(path)$size)
+      suppressWarnings(rawToChar(raw, multiple = TRUE))
+    }
+  )
+  if (!length(text)) {
+    return(FALSE)
+  }
+  normalized <- iconv(text, from = "UTF-8", to = "ASCII//TRANSLIT")
+  normalized <- toupper(normalized)
+  any(grepl("NAO HA DADOS PARA A DATA CONSULTADA", normalized, fixed = TRUE))
+}
+
+.bmf_nodata_log_path <- function(ticker_root,
+                                 which = c("cache", "data", "config"),
+                                 create_dir = TRUE) {
+  which <- match.arg(which)
+  dir <- .bmf_storage_dir(ticker_root, which = which, create = create_dir)
+  file.path(dir, "no-data-dates.txt")
+}
+
+.bmf_read_no_data_dates <- function(ticker_root,
+                                    which = c("cache", "data", "config")) {
+  which <- match.arg(which)
+  path <- .bmf_nodata_log_path(ticker_root, which = which, create_dir = TRUE)
+  if (!file.exists(path)) {
+    return(as.Date(character()))
+  }
+  lines <- readLines(path, warn = FALSE)
+  parsed <- suppressWarnings(as.Date(lines))
+  parsed[!is.na(parsed)]
+}
+
+.bmf_write_no_data_dates <- function(ticker_root,
+                                     which = c("cache", "data", "config"),
+                                     dates = as.Date(character())) {
+  which <- match.arg(which)
+  dates <- unique(sort(as.Date(dates)))
+  path <- .bmf_nodata_log_path(ticker_root, which = which, create_dir = TRUE)
+  if (!length(dates)) {
+    if (file.exists(path)) {
+      unlink(path)
+    }
+    return(path)
+  }
+  writeLines(format(dates, "%Y-%m-%d"), con = path)
+  path
 }
 
 .bmf_detect_report_format <- function(path) {

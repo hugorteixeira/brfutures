@@ -10,7 +10,10 @@ bmf_build_contract_series(
   out_dir = NULL,
   save_series = TRUE,
   add_agg = FALSE,
-  which = c("cache", "data", "config")
+  which = c("cache", "data", "config"),
+  verbose = TRUE,
+  estimate_maturity = FALSE,
+  return = c("list", "agg")
 )
 }
 \arguments{
@@ -27,6 +30,11 @@ contracts with a `ticker` column for downstream merges.}
 
 \item{which}{Storage location passed to `tools::R_user_dir` when directories
 are inferred.}
+
+\item{verbose}{If `TRUE`, emit progress messages while building the series.}
+
+\item{return}{Controls what is returned. `"list"` (default) returns the
+per-contract xts objects; `"agg"` returns the aggregated data frame.}
 }
 \value{
 A named list of xts objects; the list has an attribute `files` with

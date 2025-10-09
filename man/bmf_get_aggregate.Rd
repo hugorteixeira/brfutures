@@ -7,7 +7,9 @@
 bmf_get_aggregate(
   ticker_root,
   data_dir = NULL,
-  which = c("cache", "data", "config")
+  which = c("cache", "data", "config"),
+  ohlc_locf = TRUE,
+  return = c("agg", "list")
 )
 }
 \arguments{

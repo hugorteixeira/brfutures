@@ -17,5 +17,7 @@ Imports:
     xml2,
     rvest,
     xts,
-    readxl
+    readxl,
+    bizdays,
+    lubridate
 RoxygenNote: 7.3.2

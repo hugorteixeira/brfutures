@@ -13,7 +13,8 @@ bmf_download_history(
   overwrite = FALSE,
   quiet = TRUE,
   skip_existing = TRUE,
-  which = c("cache", "data", "config")
+  which = c("cache", "data", "config"),
+  verbose = TRUE
 )
 }
 \arguments{
