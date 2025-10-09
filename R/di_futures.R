@@ -15,7 +15,7 @@ di_maturity_from_ticker <- function(ticker, cal) {
 }
 
 # Tick regime for DI rates (in percentage points)
-# Note: keep rule_change_date configurable (confirm with B3 "Parâmetros" doc if needed).
+# Note: keep rule_change_date configurable (confirm with B3 "ParÃ¢metros" doc if needed).
 .get_di_tick_size <- function(mm, basis_date, rule_change_date = as.Date("2025-08-25")) {
   basis_date <- as.Date(basis_date)
   if (basis_date < rule_change_date) {
@@ -660,10 +660,10 @@ di_ohlc_to_pu_augmented_xts <- function(
 
 # calendar
 cal <- bizdays::create.calendar("Brazil/ANBIMA",
-                                holidays = bizdays::holidays("Brazil/ANBIMA"),
+                                holidays = holidays("Brazil/ANBIMA"),
                                 weekdays = c("saturday","sunday"))
 
-# maturidade do DI1F11 (1º dia útil do mês)
+# maturidade do DI1F11 (1Âº dia Ãºtil do mÃªs)
 di_maturity_from_ticker <- function(ticker, cal) {
   month_letter <- c(F=1,G=2,H=3,J=4,K=5,M=6,N=7,Q=8,U=9,V=10,X=11,Z=12)
   m <- month_letter[substr(ticker, 4, 4)]
