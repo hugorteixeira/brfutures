@@ -1,0 +1,21 @@
+Package: brfutures
+Type: Package
+Title: Brazilian Futures Data Tools
+Version: 0.0.1
+Authors@R: person(
+    given = "Hugo",
+    family = "Rzepian Teixeira",
+    email = "hugorteixeira@senhormercado.com.br",
+    role = c("aut", "cre"))
+Description: Helpers to download, parse, and organise Brazilian futures
+    bulletins from B3 (formerly BM&F) with ready-to-use xts time series.
+License: GPL (>= 3)
+Encoding: UTF-8
+LazyData: true
+Imports:
+    httr,
+    xml2,
+    rvest,
+    xts,
+    readxl
+RoxygenNote: 7.3.2
