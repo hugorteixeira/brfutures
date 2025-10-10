@@ -8,7 +8,7 @@ bmf_get_series(
   ticker,
   data_dir = NULL,
   which = c("cache", "data", "config"),
-  type = c("full", "ohlc", "ohlcv_locf"),
+  type = c("full", "ohlcv_locf"),
   verbose = FALSE,
   tz = "America/Sao_Paulo"
 )
@@ -22,7 +22,8 @@ cache directory for the parent ticker root.}
 \item{which}{Storage location passed to `tools::R_user_dir` when directories
 are inferred.}
 
-\item{type}{One of `"full"`, `"ohlc"`, or `"ohlcv_locf"`.}
+\item{type}{One of `"full"` or `"ohlcv_locf"` (forward-fill OHLC gaps per contract before
+returning the data).}
 
 \item{verbose}{If `TRUE`, emit informative messages.}
 

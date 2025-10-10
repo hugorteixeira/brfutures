@@ -154,7 +154,7 @@
   cols <- list(
     date = as.Date(character()),
     ticker_root = character(),
-    mercadoria = character(),
+    commodity = character(),
     contract_code = character(),
     ticker = character(),
     open_interest = numeric(),
@@ -186,6 +186,7 @@
     "NUM. NEGOC." = "trade_count",
     "CONTR. NEGOC." = "contracts_traded",
     "VOL." = "volume",
+    "MERCADORIA" = "commodity",
     "PRECO ABERT." = "open",
     "PRECO ABERTU." = "open",
     "PRECO ABERTU" = "open",

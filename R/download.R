@@ -177,12 +177,12 @@ parse_bmf_report <- function(path,
   } else if (!is.na(ticker_root)) {
     data$ticker_root[] <- ticker_root
   }
-  if (!"mercadoria" %in% names(data)) {
-    data$mercadoria <- data$ticker_root
+  if (!"commodity" %in% names(data)) {
+    data$commodity <- data$ticker_root
   } else {
-    data$mercadoria[] <- data$ticker_root
+    data$commodity[] <- data$ticker_root
   }
-  priority <- c("date", "ticker_root", "mercadoria", "contract_code")
+  priority <- c("date", "ticker_root", "commodity", "contract_code")
   other_cols <- setdiff(names(data), priority)
   data <- data[, c(priority, other_cols), drop = FALSE]
   rownames(data) <- NULL
@@ -204,7 +204,7 @@ parse_bmf_report <- function(path,
     empty <- .bmf_empty_bulletin_dataframe()
     attr(empty, "report_date") <- resolved_date
     attr(empty, "ticker_root") <- ticker_root
-    attr(empty, "mercadoria") <- ticker_root
+    attr(empty, "commodity") <- ticker_root
     attr(empty, "source") <- path
     attr(empty, "reason") <- "no_data"
     message("Report ", basename(path), " contains no data. Returning empty result.")
@@ -231,7 +231,7 @@ parse_bmf_report <- function(path,
     empty <- .bmf_empty_bulletin_dataframe()
     attr(empty, "report_date") <- resolved_date
     attr(empty, "ticker_root") <- ticker_root
-    attr(empty, "mercadoria") <- ticker_root
+    attr(empty, "commodity") <- ticker_root
     attr(empty, "source") <- path
     attr(empty, "reason") <- "missing_tables"
     message("Report ", basename(path), " is missing the expected tables. Returning empty result.")
@@ -244,7 +244,7 @@ parse_bmf_report <- function(path,
       empty <- .bmf_empty_bulletin_dataframe()
       attr(empty, "report_date") <- resolved_date
       attr(empty, "ticker_root") <- ticker_root
-      attr(empty, "mercadoria") <- ticker_root
+      attr(empty, "commodity") <- ticker_root
       attr(empty, "source") <- path
       attr(empty, "reason") <- "incomplete_tables"
       message("Report ", basename(path), " returned incomplete tables. Returning empty result.")
@@ -267,9 +267,9 @@ parse_bmf_report <- function(path,
   data$contract_code <- trimws(as.character(data$contract_code))
   data <- data[nzchar(data$contract_code), , drop = FALSE]
   data$ticker_root <- ticker_root
-  data$mercadoria <- ticker_root
+  data$commodity <- ticker_root
   data$date <- resolved_date
-  data <- data[, c("date", "ticker_root", "mercadoria", "contract_code", setdiff(names(data), c("date", "ticker_root", "mercadoria", "contract_code")))]
+  data <- data[, c("date", "ticker_root", "commodity", "contract_code", setdiff(names(data), c("date", "ticker_root", "commodity", "contract_code")))]
   rownames(data) <- NULL
   data
 }
@@ -349,7 +349,7 @@ parse_bmf_report <- function(path,
     empty <- .bmf_empty_bulletin_dataframe()
     attr(empty, "report_date") <- resolved_date
     attr(empty, "ticker_root") <- ticker_root
-    attr(empty, "mercadoria") <- ticker_root
+    attr(empty, "commodity") <- ticker_root
     attr(empty, "source") <- path
     message("Report ", basename(path), " contains no data. Returning empty result.")
     return(empty)
@@ -384,8 +384,8 @@ parse_bmf_report <- function(path,
   }
   data$date <- inferred_date
   data$ticker_root <- ticker_root
-  data$mercadoria <- ticker_root
-  data <- data[, c("date", "ticker_root", "mercadoria", "contract_code", setdiff(names(data), c("date", "ticker_root", "mercadoria", "contract_code")))]
+  data$commodity <- ticker_root
+  data <- data[, c("date", "ticker_root", "commodity", "contract_code", setdiff(names(data), c("date", "ticker_root", "commodity", "contract_code")))]
   rownames(data) <- NULL
   data
 }
@@ -454,7 +454,7 @@ bmf_collect_contracts <- function(ticker_root,
   combined <- do.call(rbind, parsed)
   combined <- combined[order(combined$contract_code, combined$date), , drop = FALSE]
   combined$ticker <- paste0(combined$ticker_root, combined$contract_code)
-  combined <- combined[, c("date", "ticker_root", "mercadoria", "contract_code", "ticker", setdiff(names(combined), c("date", "ticker_root", "mercadoria", "contract_code", "ticker"))), drop = FALSE]
+  combined <- combined[, c("date", "ticker_root", "commodity", "contract_code", "ticker", setdiff(names(combined), c("date", "ticker_root", "commodity", "contract_code", "ticker"))), drop = FALSE]
   rownames(combined) <- NULL
   attr(combined, "source_files") <- files
   combined
@@ -483,10 +483,10 @@ bmf_build_contract_series <- function(ticker_root,
                                       data_dir = NULL,
                                       out_dir = NULL,
                                       save_series = TRUE,
-                                      add_agg = FALSE,
+                                      add_agg = TRUE,
                                       which = c("cache", "data", "config"),
                                       verbose = TRUE,
-                                      estimate_maturity = FALSE,
+                                      estimate_maturity = TRUE,
                                       return = c("list", "agg")) {
   normalized <- .bmf_normalize_ticker_root(ticker_root)
   normalized <- normalized[!is.na(normalized)]
@@ -513,7 +513,7 @@ bmf_build_contract_series <- function(ticker_root,
   }
   if (!"ticker" %in% names(combined)) {
     combined$ticker <- paste0(combined$ticker_root, combined$contract_code)
-    combined <- combined[, c("date", "ticker_root", "mercadoria", "contract_code", "ticker", setdiff(names(combined), c("date", "ticker_root", "mercadoria", "contract_code", "ticker"))), drop = FALSE]
+    combined <- combined[, c("date", "ticker_root", "commodity", "contract_code", "ticker", setdiff(names(combined), c("date", "ticker_root", "commodity", "contract_code", "ticker"))), drop = FALSE]
   }
   if (isTRUE(estimate_maturity)) {
     calendar_name <- .bmf_get_calendar()
@@ -543,7 +543,7 @@ bmf_build_contract_series <- function(ticker_root,
     df <- split_data[[code]]
     df <- df[order(df$date), ]
     df <- df[!duplicated(df$date, fromLast = TRUE), , drop = FALSE]
-    value_cols <- setdiff(names(df), c("date", "ticker_root", "mercadoria", "contract_code", "ticker", "estimated_maturity"))
+    value_cols <- setdiff(names(df), c("date", "ticker_root", "commodity", "contract_code", "ticker", "estimated_maturity"))
     numeric_cols <- value_cols[sapply(df[value_cols], function(col) is.numeric(col) || is.integer(col))]
     if (!length(numeric_cols)) {
       next
@@ -602,7 +602,7 @@ bmf_build_contract_series <- function(ticker_root,
 #' @param which Storage location passed to `tools::R_user_dir` when `dest_dir`
 #'   is `NULL`.
 #' @param verbose If `TRUE`, emit progress messages and download stats.
-#' 
+#'
 #' @return Invisibly returns a data frame summarising download results.
 #' @export
 bmf_download_history <- function(ticker_root,
@@ -831,8 +831,8 @@ bmf_list_ticker_roots <- function() {
 #'   cache directory for the ticker when `NULL`.
 #' @param which Storage location passed to `tools::R_user_dir` when directories
 #'   are inferred.
-#' @param ohlc_locf If `TRUE`, forward-fill OHLC gaps per contract before
-#'   returning the data.
+#' @param type One of `"full"` or `"ohlcv_locf"` (forward-fill OHLC gaps per contract before
+#'   returning the data).
 #' @param return Controls the output: `"agg"` (default) returns the aggregate
 #'   data frame; `"list"` returns a split list of data frames with a `path`
 #'   attribute referencing the aggregate file.
@@ -843,7 +843,7 @@ bmf_list_ticker_roots <- function() {
 bmf_get_aggregate <- function(ticker_root,
                               data_dir = NULL,
                               which = c("cache", "data", "config"),
-                              ohlc_locf = TRUE,
+                              type = c("ohlcv_locf","full"),
                               return = c("agg", "list")) {
   normalized <- .bmf_normalize_ticker_root(ticker_root)
   normalized <- normalized[!is.na(normalized)]
@@ -875,9 +875,14 @@ bmf_get_aggregate <- function(ticker_root,
       data$estimated_maturity <- as.Date(data$estimated_maturity)
     }
   }
-  if (isTRUE(ohlc_locf)) {
+  if (type == "ohlcv_locf") {
     data <- .bmf_locf_ohlc(data)
   }
+  if(type == "full"){
+    data <- .bmf_locf_ohlc(data)
+    data <- .bmf_full(data)
+  }
+  data <- .bmf_add_pu_columns(data, ticker_hint = ticker_root_norm)
   if (identical(return, "list")) {
     ordered_idx <- order(data$ticker, data$date, seq_len(nrow(data)))
     data <- data[ordered_idx, , drop = FALSE]
@@ -895,7 +900,8 @@ bmf_get_aggregate <- function(ticker_root,
 #'   cache directory for the parent ticker root.
 #' @param which Storage location passed to `tools::R_user_dir` when directories
 #'   are inferred.
-#' @param type One of `"full"`, `"ohlc"`, or `"ohlcv_locf"`.
+#' @param type One of `"full"` or `"ohlcv_locf"` (forward-fill OHLC gaps per contract before
+#'   returning the data).
 #' @param verbose If `TRUE`, emit informative messages.
 #' @param tz Time zone assigned to the returned xts index.
 #'
@@ -905,7 +911,7 @@ bmf_get_aggregate <- function(ticker_root,
 bmf_get_series <- function(ticker,
                            data_dir = NULL,
                            which = c("cache", "data", "config"),
-                           type = c("full", "ohlc", "ohlcv_locf"),
+                           type = c("full", "ohlcv_locf"),
                            verbose = FALSE, tz = "America/Sao_Paulo") {
   if (missing(ticker) || !nzchar(trimws(ticker[1L]))) {
     stop("ticker must be provided.", call. = FALSE)
@@ -945,15 +951,17 @@ bmf_get_series <- function(ticker,
       subset$estimated_maturity <- as.Date(subset$estimated_maturity)
     }
   }
-  if (type == "ohlc") {
-    cols <- intersect(c("date", "ticker", "open", "high", "low", "close", "volume"), names(subset))
-    subset <- subset[, cols, drop = FALSE]
-  } else if (type == "ohlcv_locf") {
+  if (type == "ohlcv_locf") {
     subset <- .bmf_locf_ohlc(subset)
-    cols <- intersect(c("date", "ticker", "open", "high", "low", "close", "volume"), names(subset))
+  }
+  subset <- .bmf_add_pu_columns(subset, ticker_hint = ticker)
+  if (type %in% c("ohlcv_locf")) {
+    cols <- intersect(
+      c("date", "ticker", "open", "high", "low", "close", "volume", "PU_o", "PU_h", "PU_l", "PU_c"),
+      names(subset)
+    )
     subset <- subset[, cols, drop = FALSE]
   }
-
 
   subset$open <- as.numeric(subset$open)
   subset$high <- as.numeric(subset$high)
@@ -967,12 +975,99 @@ bmf_get_series <- function(ticker,
     return(.bmf_empty_bulletin_dataframe())
   }
   idx <- force_tz(as.POSIXct(subset$date), tzone = tz)
+  matrix_cols <- intersect(
+    c("open", "high", "low", "close", "volume", "PU_o", "PU_h", "PU_l", "PU_c"),
+    names(subset)
+  )
   subset_xts <- xts(
-    as.matrix(subset[, c("open", "high", "low", "close", "volume")]),
+    as.matrix(subset[, matrix_cols, drop = FALSE]),
     order.by = idx
   )
-  colnames(subset_xts) <- c("Open", "High", "Low", "Close", "Volume")
+if(type == "full"){
+  subset <- .bmf_locf_ohlc(subset)
+  subset <- .bmf_full(subset)
+  return(subset)
+}
+  display_map <- c(open = "Open", high = "High", low = "Low", close = "Close", volume = "Volume")
+  new_names <- matrix_cols
+  mapped <- matrix_cols %in% names(display_map)
+  new_names[mapped] <- display_map[matrix_cols[mapped]]
+  colnames(subset_xts) <- new_names
   subset_xts
+}
+
+.bmf_add_pu_columns <- function(df, ticker_hint = NULL) {
+  if (!is.data.frame(df) || !nrow(df)) {
+    return(df)
+  }
+  ohlc_cols <- c("open", "high", "low", "close")
+  if (!all(ohlc_cols %in% names(df))) {
+    return(df)
+  }
+  prefixes <- NULL
+  if ("ticker" %in% names(df)) {
+    prefixes <- substr(df$ticker, 1L, 3L)
+  } else if (!is.null(ticker_hint)) {
+    prefixes <- rep(substr(ticker_hint, 1L, 3L), nrow(df))
+  }
+  if (is.null(prefixes)) {
+    return(df)
+  }
+  prefixes <- toupper(prefixes)
+  valid_prefixes <- intersect(unique(prefixes), c("DI1", "CCM", "BGI"))
+  if (!length(valid_prefixes)) {
+    return(df)
+  }
+  df[ohlc_cols] <- lapply(df[ohlc_cols], function(col) suppressWarnings(as.numeric(col)))
+  df$PU_o <- NA_real_
+  df$PU_h <- NA_real_
+  df$PU_l <- NA_real_
+  df$PU_c <- NA_real_
+
+  for (prefix in valid_prefixes) {
+    idx <- prefixes == prefix
+    if (!any(idx)) next
+    if (prefix == "DI1") {
+      if (!"estimated_maturity" %in% names(df)) {
+        next
+      }
+      basis_dates <- as.Date(df$date[idx])
+      maturity_vals <- suppressWarnings(as.Date(df$estimated_maturity[idx]))
+      if (!length(basis_dates)) {
+        next
+      }
+      cal <- .bmf_get_calendar()
+      valid_days <- vapply(
+        seq_along(basis_dates),
+        function(i) {
+          b <- basis_dates[i]
+          m <- maturity_vals[i]
+          if (is.na(b) || is.na(m)) {
+            return(NA_real_)
+          }
+          tryCatch(
+            {
+              n <- .biz_n(b, m, cal, include_basis_day = TRUE)
+              if (!is.finite(n) || n <= 0) NA_real_ else as.numeric(n)
+            },
+            error = function(...) NA_real_
+          )
+        },
+        numeric(1)
+      )
+      df$PU_o[idx] <- .di_pu_from_rate(df$open[idx], valid_days)
+      df$PU_h[idx] <- .di_pu_from_rate(df$high[idx], valid_days)
+      df$PU_l[idx] <- .di_pu_from_rate(df$low[idx], valid_days)
+      df$PU_c[idx] <- .di_pu_from_rate(df$close[idx], valid_days)
+    } else {
+      multiplier <- if (prefix == "CCM") 450 else 330
+      df$PU_o[idx] <- df$open[idx] * multiplier
+      df$PU_h[idx] <- df$high[idx] * multiplier
+      df$PU_l[idx] <- df$low[idx] * multiplier
+      df$PU_c[idx] <- df$close[idx] * multiplier
+    }
+  }
+  df
 }
 
 .bmf_locf_ohlc <- function(df) {
@@ -1003,4 +1098,17 @@ bmf_get_series <- function(ticker,
     }
   }
   df
+}
+
+.bmf_full <- function(df){
+    if ("ticker" %in% names(df)) {
+      names(df)[names(df) == "ticker"] <- "symbol"
+    }
+    if ("date" %in% names(df)) {
+      names(df)[names(df) == "date"] <- "refdate"
+    }
+    if ("contract_code" %in% names(df)) {
+      names(df)[names(df) == "contract_code"] <- "maturity_code"
+    }
+    return(df)
 }

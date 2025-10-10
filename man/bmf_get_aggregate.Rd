@@ -8,7 +8,7 @@ bmf_get_aggregate(
   ticker_root,
   data_dir = NULL,
   which = c("cache", "data", "config"),
-  ohlc_locf = TRUE,
+  type = c("ohlcv_locf", "full"),
   return = c("agg", "list")
 )
 }
@@ -21,8 +21,8 @@ cache directory for the ticker when `NULL`.}
 \item{which}{Storage location passed to `tools::R_user_dir` when directories
 are inferred.}
 
-\item{ohlc_locf}{If `TRUE`, forward-fill OHLC gaps per contract before
-returning the data.}
+\item{type}{One of `"full"` or `"ohlcv_locf"` (forward-fill OHLC gaps per contract before
+returning the data).}
 
 \item{return}{Controls the output: `"agg"` (default) returns the aggregate
 data frame; `"list"` returns a split list of data frames with a `path`

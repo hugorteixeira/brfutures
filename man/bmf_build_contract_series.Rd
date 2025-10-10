@@ -9,10 +9,10 @@ bmf_build_contract_series(
   data_dir = NULL,
   out_dir = NULL,
   save_series = TRUE,
-  add_agg = FALSE,
+  add_agg = TRUE,
   which = c("cache", "data", "config"),
   verbose = TRUE,
-  estimate_maturity = FALSE,
+  estimate_maturity = TRUE,
   return = c("list", "agg")
 )
 }

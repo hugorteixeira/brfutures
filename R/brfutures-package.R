@@ -8,6 +8,7 @@
 #' @importFrom stats runif
 #' @importFrom xts xts is.xts xtsAttributes
 #' @importFrom zoo index
+#' @importFrom bizdays create.calendar holidays bizdays is.bizday adjust.next
 ## usethis namespace: end
 NULL
 
