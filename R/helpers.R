@@ -147,7 +147,7 @@
   }
   texts <- xml2::xml_text(nodes)
   texts <- iconv(texts, from = "UTF-8", to = "ASCII//TRANSLIT")
-  any(grepl("Nao ha dados", texts, ignore.case = TRUE))
+  any(grepl("dados para a data consultada", texts, ignore.case = TRUE))
 }
 
 .bmf_empty_bulletin_dataframe <- function() {
@@ -353,7 +353,7 @@
   }
   normalized <- iconv(text, from = "UTF-8", to = "ASCII//TRANSLIT")
   normalized <- toupper(normalized)
-  any(grepl("NAO HA DADOS PARA A DATA CONSULTADA", normalized, fixed = TRUE))
+  any(grepl("DADOS PARA A DATA CONSULTADA", normalized, fixed = TRUE))
 }
 
 .bmf_nodata_log_path <- function(ticker_root,
@@ -555,7 +555,7 @@
   }
   normalized <- iconv(text, from = "UTF-8", to = "ASCII//TRANSLIT")
   normalized <- toupper(normalized)
-  any(grepl("NAO HA DADOS PARA A DATA CONSULTADA", normalized, fixed = TRUE))
+  any(grepl("DADOS PARA A DATA CONSULTADA", normalized, fixed = TRUE))
 }
 
 .bmf_nodata_log_path <- function(ticker_root,

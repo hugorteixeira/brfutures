@@ -336,7 +336,7 @@ parse_bmf_report <- function(path,
       as.character(value)
     }
   }, character(1), USE.NAMES = FALSE)
-  if (any(grepl("Nao ha dados", all_cells_chr, ignore.case = TRUE))) {
+  if (any(grepl("dados para a data consultada.", all_cells_chr, ignore.case = TRUE))) {
     resolved_date <- report_date
     if (is.null(resolved_date) || is.na(resolved_date)) {
       resolved_date <- .bmf_extract_date_from_filename(path)
