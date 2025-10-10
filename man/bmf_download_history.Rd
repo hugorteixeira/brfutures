@@ -36,6 +36,8 @@ bmf_download_history(
 
 \item{which}{Storage location passed to `tools::R_user_dir` when `dest_dir`
 is `NULL`.}
+
+\item{verbose}{If `TRUE`, emit progress messages and download stats.}
 }
 \value{
 Invisibly returns a data frame summarising download results.

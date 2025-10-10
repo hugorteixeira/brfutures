@@ -1,75 +1,226 @@
+# Mapping from B3 month letters to calendar months.
+.month_letter <- c(F = 1, G = 2, H = 3, J = 4, K = 5, M = 6, N = 7, Q = 8, U = 9, V = 10, X = 11, Z = 12)
 
-# Map month letter (B3) to number
-.month_letter <- c(F=1,G=2,H=3,J=4,K=5,M=6,N=7,Q=8,U=9,V=10,X=11,Z=12)
-
-# Derive maturity date for DI from a contract code like "DI1F11"
-# Uses: first business day of the maturity month.
-di_maturity_from_ticker <- function(ticker, cal) {
-  stopifnot(is.character(ticker), length(ticker) == 1)
-  m <- .month_letter[substr(ticker, 4, 4)]
-  if (is.na(m)) stop("Cannot parse month from ticker: ", ticker)
-  y2 <- as.integer(substr(ticker, 5, 6))
-  y4 <- ifelse(y2 >= 90, 1900 + y2, 2000 + y2)
-  first_day <- as.Date(sprintf("%04d-%02d-01", y4, m))
-  bizdays::adjust.next(first_day, cal)
+# Build (or echo) the bizdays calendar used across DI helpers.
+.resolve_di_calendar <- function(cal) {
+  if (!is.null(cal)) return(cal)
+  bizdays::create.calendar(
+    name      = "Brazil/ANBIMA",
+    holidays  = bizdays::holidays("Brazil/ANBIMA"),
+    weekdays  = c("saturday", "sunday")
+  )
 }
 
-# Tick regime for DI rates (in percentage points)
-# Note: keep rule_change_date configurable (confirm with B3 "Parâmetros" doc if needed).
+# Tick regime for DI futures, expressed in percentage points.
 .get_di_tick_size <- function(mm, basis_date, rule_change_date = as.Date("2025-08-25")) {
   basis_date <- as.Date(basis_date)
   if (basis_date < rule_change_date) {
-    # Legacy: 0???3m: 0.001 ; 3???60m: 0.005 ; >60m: 0.010
     if (mm <= 3) 0.001 else if (mm <= 60) 0.005 else 0.010
   } else {
-    # New: 0???3m: 0.001 ; >3m: 0.005
     if (mm <= 3) 0.001 else 0.005
   }
 }
 
-# Snap a rate (in %) to the nearest valid tick for its tenor bucket
+# Snap rate(s) to the closest valid tick for their tenor bucket.
 .snap_rate_to_tick <- function(rates, mm, basis_date, rule_change_date = as.Date("2025-08-25")) {
   tick <- .get_di_tick_size(mm, basis_date, rule_change_date)
-  # Round to nearest multiple of tick (in percentage points)
   round(rates / tick) * tick
 }
 
-# Robust months-to-maturity used only to select tick bucket
-.months_between_floor <- function(basis_date, maturity_date) {
-  # Floor of whole months between basis and maturity.
-  # Enough for tick-bucket selection; exact day-count comes separately.
-  lubridate::interval(as.Date(basis_date), as.Date(maturity_date)) %/% months(1)
+# Vectorised wrapper used when basis dates (and month buckets) vary per element.
+.snap_di_rates <- function(rates, mm, basis_date, rule_change_date = as.Date("2025-08-25")) {
+  mapply(
+    function(rate, month_bucket, basis) .snap_rate_to_tick(rate, month_bucket, basis, rule_change_date),
+    rates,
+    mm,
+    as.Date(basis_date),
+    SIMPLIFY = TRUE,
+    USE.NAMES = FALSE
+  )
 }
 
-# Business-day count with explicit convention toggle.
-# Bizdays::bizdays(a,b) excludes 'a' and includes 'b'. B3 convention can vary by spec.
-# Use include_basis_day to add +1 when you need [including basis, excluding maturity] effect.
+# Floor of elapsed months between two dates (sufficient for tick bucket selection).
+.months_between_floor <- function(basis_date, maturity_date) {
+  interval(as.Date(basis_date), as.Date(maturity_date)) %/% months(1)
+}
+
+# Business-day count respecting B3 convention toggles.
 .biz_n <- function(basis_date, maturity_date, cal, include_basis_day = TRUE) {
   n <- bizdays::bizdays(as.Date(basis_date), as.Date(maturity_date), cal)
   if (include_basis_day) {
-    # If the basis is a business day, add 1 to emulate "include basis"
     n <- n + as.integer(bizdays::is.bizday(as.Date(basis_date), cal))
   }
   if (n <= 0) stop("Non-positive valid-days. Check basis/maturity and calendar.")
   n
 }
 
-#' DI futures notional and tick value from rates
+# Helper to derive business-day tenor and month bucket for a basis/maturity pair.
+.resolve_di_tenor <- function(maturity_date,
+                              basis_date,
+                              cal,
+                              include_basis_day = TRUE,
+                              allow_coercion = FALSE) {
+  basis_date <- as.Date(basis_date)
+
+  if (inherits(maturity_date, "Date")) {
+    maturity <- as.Date(maturity_date)
+  } else if (is.numeric(maturity_date)) {
+    n <- as.integer(maturity_date)
+    if (n <= 0) stop("'maturity_date' as numeric must be positive business days.")
+    return(list(
+      valid_days    = n,
+      months_bucket = as.numeric(n) / 21,
+      maturity_date = NA
+    ))
+  } else if (allow_coercion) {
+    maturity <- try(as.Date(maturity_date), silent = TRUE)
+    if (inherits(maturity, "try-error") || is.na(maturity)) {
+      stop("'maturity_date' must be Date or numeric business days (or coercible to Date).")
+    }
+  } else {
+    stop("'maturity_date' must be Date or numeric business days.")
+  }
+
+  n <- .biz_n(basis_date, maturity, cal, include_basis_day = include_basis_day)
+  mm <- .months_between_floor(basis_date, maturity)
+  if (n <= 0) stop("Number of business days to maturity must be positive.")
+
+  list(
+    valid_days    = n,
+    months_bucket = mm,
+    maturity_date = maturity
+  )
+}
+
+# Rate/PU conversions shared across helpers.
+.di_pu_from_rate <- function(rates, valid_days, round_pu = TRUE) {
+  rates <- as.numeric(rates)
+  valid_days <- as.numeric(valid_days)
+  pu <- 1e5 / (1 + rates / 100)^(valid_days / 252)
+  bad <- !is.finite(rates) | rates <= -100
+  pu[bad] <- NA_real_
+  if (round_pu) pu <- round(pu, 2L)
+  pu
+}
+
+.di_rate_from_pu <- function(pu, valid_days) {
+  pu <- as.numeric(pu)
+  valid_days <- as.numeric(valid_days)
+  rates <- 100 * ((1e5 / pu)^(252 / valid_days) - 1)
+  bad <- !is.finite(pu) | pu <= 0
+  rates[bad] <- NA_real_
+  rates
+}
+
+# Column resolver shared by xts helpers.
+.resolve_ohlc_columns <- function(x) {
+  nm <- tolower(colnames(x))
+  find_first <- function(candidates) {
+    idx <- match(candidates, nm, nomatch = 0L)
+    idx <- idx[idx > 0L]
+    if (length(idx) == 0L) return(NA_integer_)
+    idx[1L]
+  }
+  open_idx  <- find_first(c("open", "o"))
+  high_idx  <- find_first(c("high", "h"))
+  low_idx   <- find_first(c("low", "l"))
+  close_idx <- find_first(c("close", "c", "last", "settle", "settlement_price"))
+
+  if (any(is.na(c(open_idx, high_idx, low_idx, close_idx)))) {
+    stop("Could not resolve OHLC columns (require open/high/low/close as percent rates).")
+  }
+
+  volume_idx <- find_first(c(
+    "volume", "vol", "contracts_traded", "qty", "contracts", "volume_brl", "volume_brls"
+  ))
+
+  list(
+    open   = open_idx,
+    high   = high_idx,
+    low    = low_idx,
+    close  = close_idx,
+    volume = volume_idx
+  )
+}
+
+.resolve_maturity_input <- function(maturity_date, x = NULL) {
+  if (!is.null(maturity_date)) return(maturity_date)
+  if (is.null(x)) return(maturity_date)
+
+  attr_val <- attr(x, "maturity", exact = TRUE)
+  if (is.null(attr_val)) {
+    attrs <- try(xtsAttributes(x), silent = TRUE)
+    if (!inherits(attrs, "try-error") && length(attrs) && "maturity" %in% names(attrs)) {
+      attr_val <- attrs[["maturity"]]
+    }
+  }
+  if (is.null(attr_val)) return(maturity_date)
+
+  if (length(attr_val) > 1) attr_val <- attr_val[[1]]
+  if (is.list(attr_val)) attr_val <- attr_val[[1]]
+
+  if (inherits(attr_val, "Date")) return(attr_val)
+  if (inherits(attr_val, "POSIXt")) return(as.Date(attr_val))
+  if (is.character(attr_val)) {
+    parsed <- as.Date(attr_val)
+    if (any(is.na(parsed)) && grepl("^\\d{8}$", attr_val)) {
+      parsed <- as.Date(attr_val, format = "%Y%m%d")
+    }
+    if (any(is.na(parsed))) stop("Could not coerce 'maturity' attribute to Date.")
+    return(parsed)
+  }
+
+  attr_val
+}
+
+#' Derive DI maturity date from a B3 ticker
 #'
-#' Compute DI futures notional price (PU) and tick value given an annualized DI rate (%)
-#' and time to expiry. Adds: explicit business-day convention, tick snapping, and rounding.
+#' The maturity is the first business day of the contract month, adjusted with the
+#' supplied `bizdays` calendar.
 #'
-#' @param rates Annualized DI rate in percent (vector OK).
-#' @param maturity_date Date or number of business days to expiry.
-#' @param basis_date Reference Date (trade date).
-#' @param cal bizdays calendar; default "Brazil/ANBIMA".
-#' @param include_basis_day Logical, whether to include basis day in day count.
-#' @param snap_to_tick Logical, snap input rates to DI tick grid before pricing.
-#' @param round_pu Logical, round PU to 0.01 (B3 prints cents).
-#' @param rule_change_date Date, tick regime change cutoff.
-#' @return list(valid_days, pu, tick_size, tick_value).
+#' @param ticker Character scalar such as `"DI1F25"`.
+#' @param cal `bizdays` calendar. If `NULL`, the standard `"Brazil/ANBIMA"` calendar is used.
+#'
+#' @return A `Date` with the contract maturity.
+#' @examples
+#' \dontrun{
+#' di_maturity_from_ticker("DI1F25")
+#' }
 #' @export
-.calculate_futures_di_notional <- function(
+di_maturity_from_ticker <- function(ticker, cal = NULL) {
+  stopifnot(is.character(ticker), length(ticker) == 1)
+  cal <- .resolve_di_calendar(cal)
+
+  month_code <- substr(ticker, 4, 4)
+  mm <- .month_letter[month_code]
+  if (is.na(mm)) stop("Cannot parse month from ticker: ", ticker)
+
+  y2 <- as.integer(substr(ticker, 5, 6))
+  if (is.na(y2)) stop("Cannot parse year from ticker: ", ticker)
+  y4 <- ifelse(y2 >= 90, 1900 + y2, 2000 + y2)
+
+  first_day <- as.Date(sprintf("%04d-%02d-01", y4, mm))
+  bizdays::adjust.next(first_day, cal)
+}
+
+#' DI futures notional (PU) from annualized rates
+#'
+#' Compute the DI futures notional price (PU) and tick value given an annualized DI
+#' rate (percentage). Supports explicit business-day conventions, optional rate
+#' snapping to the DI tick grid, and rounding to cents.
+#'
+#' @param rates Annualized DI rate(s) in percent.
+#' @param maturity_date Maturity `Date` or number of business days to expiry.
+#' @param basis_date Trade/reference date.
+#' @param cal `bizdays` calendar. Defaults to `"Brazil/ANBIMA"` when `NULL`.
+#' @param include_basis_day Whether to add the basis day to the business-day count.
+#' @param snap_to_tick Snap `rates` to the DI tick grid before pricing.
+#' @param round_pu Round the PU to two decimals (B3 convention).
+#' @param rule_change_date Date where the DI tick regime changes.
+#'
+#' @return A list with elements `valid_days`, `pu`, `tick_size`, and `tick_value`.
+#' @export
+calculate_futures_di_notional <- function(
     rates,
     maturity_date,
     basis_date = Sys.Date(),
@@ -79,67 +230,49 @@ di_maturity_from_ticker <- function(ticker, cal) {
     round_pu = TRUE,
     rule_change_date = as.Date("2025-08-25")
 ) {
-  if (is.null(cal)) {
-    cal <- bizdays::create.calendar(
-      name      = "Brazil/ANBIMA",
-      holidays  = bizdays::holidays("Brazil/ANBIMA"),
-      weekdays  = c("saturday", "sunday")
-    )
-  }
+  cal <- .resolve_di_calendar(cal)
   basis_date <- as.Date(basis_date)
 
-  # Resolve n (valid business days) and mm (months for tick bucket)
-  if (inherits(maturity_date, "Date")) {
-    md <- as.Date(maturity_date)
-    n  <- .biz_n(basis_date, md, cal, include_basis_day = include_basis_day)
-    mm <- .months_between_floor(basis_date, md)
-  } else if (is.numeric(maturity_date)) {
-    md <- NA
-    n  <- as.integer(maturity_date)
-    mm <- n / 21   # coarse proxy only for tick-bucket if only 'n' is given
-  } else {
-    stop("'maturity_date' must be Date or numeric business days.")
-  }
-  if (n <= 0) stop("Number of business days to maturity must be positive.")
+  tenor <- .resolve_di_tenor(
+    maturity_date = maturity_date,
+    basis_date = basis_date,
+    cal = cal,
+    include_basis_day = include_basis_day
+  )
+  n <- tenor$valid_days
+  mm <- tenor$months_bucket
 
-  # Rate sanity + optional snap to tick grid
   rates <- as.numeric(rates)
-  if (any(!is.finite(rates) | rates <= -100)) stop("'rates' must be finite and > -100%.")
-  if (snap_to_tick) rates <- .snap_rate_to_tick(rates, mm, basis_date, rule_change_date)
+  if (any(!is.finite(rates) | rates <= -100)) stop("'rates' must be finite and greater than -100%.")
+  if (snap_to_tick) {
+    rates <- .snap_di_rates(rates, mm, basis_date, rule_change_date)
+  }
 
-  # PU from rate
-  pu <- 1e5 / (1 + rates/100)^(n/252)
+  pu <- .di_pu_from_rate(rates, n, round_pu = round_pu)
 
-  # Tick-size and tick-value (magnitude of dPU per one rate-tick)
   tick_size  <- .get_di_tick_size(mm, basis_date, rule_change_date)
-  deriv_pp   <- -(n/252) * pu / (100 * (1 + rates/100))  # dPU/d(rate_pp)
+  deriv_pp   <- -(n / 252) * pu / (100 * (1 + rates / 100))
   tick_value <- abs(deriv_pp) * tick_size
 
-  if (round_pu) pu <- round(pu, 2L)
-
   list(
-    valid_days = n,
+    valid_days = as.integer(n),
     pu         = as.numeric(pu),
     tick_size  = tick_size,
     tick_value = as.numeric(tick_value)
   )
 }
 
-#' DI futures rate and tick value from PU
+#' DI futures rates from notional (PU)
 #'
-#' Inverse of the notional function. Adds: explicit bizday convention, optional
-#' snap of the OUTPUT rate to the tick grid, and PU rounding pre-check.
+#' Inverse of `calculate_futures_di_notional()`. Converts a DI futures PU back into
+#' an annualized rate, optionally snapping the output to the DI tick grid.
 #'
-#' @param pu DI futures price (PU).
-#' @param maturity_date Date or number of business days to expiry.
-#' @param basis_date Reference Date (trade date).
-#' @param cal bizdays calendar; default "Brazil/ANBIMA".
-#' @param include_basis_day Logical, include basis in day count (see .biz_n).
-#' @param snap_to_tick Logical, snap resulting rate to DI tick grid.
-#' @param rule_change_date Date, tick regime change cutoff.
-#' @return list(valid_days, rates, tick_size, tick_value).
+#' @inheritParams calculate_futures_di_notional
+#' @param pu Futures price (PU) in monetary units.
+#'
+#' @return A list with elements `valid_days`, `rates`, `tick_size`, and `tick_value`.
 #' @export
-.calculate_futures_di_rates <- function(
+calculate_futures_di_rates <- function(
     pu,
     maturity_date,
     basis_date = Sys.Date(),
@@ -148,78 +281,53 @@ di_maturity_from_ticker <- function(ticker, cal) {
     snap_to_tick = TRUE,
     rule_change_date = as.Date("2025-08-25")
 ) {
-  if (is.null(cal)) {
-    cal <- bizdays::create.calendar(
-      name      = "Brazil/ANBIMA",
-      holidays  = bizdays::holidays("Brazil/ANBIMA"),
-      weekdays  = c("saturday", "sunday")
-    )
-  }
+  cal <- .resolve_di_calendar(cal)
   basis_date <- as.Date(basis_date)
 
-  # Resolve n and mm
-  if (inherits(maturity_date, "Date")) {
-    md <- as.Date(maturity_date)
-    n  <- .biz_n(basis_date, md, cal, include_basis_day = include_basis_day)
-    mm <- .months_between_floor(basis_date, md)
-  } else if (is.numeric(maturity_date)) {
-    md <- NA
-    n  <- as.integer(maturity_date)
-    mm <- n / 21
-  } else {
-    # Allow coercion to Date from character
-    md <- try(as.Date(maturity_date), silent = TRUE)
-    if (inherits(md, "try-error") || is.na(md)) {
-      stop("'maturity_date' must be Date or numeric business days (or coercible to Date).")
-    }
-    n  <- .biz_n(basis_date, md, cal, include_basis_day = include_basis_day)
-    mm <- .months_between_floor(basis_date, md)
-  }
-  if (n <= 0) stop("Number of business days to maturity must be positive.")
+  tenor <- .resolve_di_tenor(
+    maturity_date = maturity_date,
+    basis_date = basis_date,
+    cal = cal,
+    include_basis_day = include_basis_day,
+    allow_coercion = TRUE
+  )
+  n <- tenor$valid_days
+  mm <- tenor$months_bucket
 
-  # PU sanity
   pu <- as.numeric(pu)
   if (any(!is.finite(pu) | pu <= 0)) stop("'pu' must be positive and finite.")
 
-  # Rate from PU
-  rates <- 100 * ((1e5 / pu)^(252 / n) - 1)  # percentage
+  rates <- .di_rate_from_pu(pu, n)
+  if (snap_to_tick) {
+    rates <- .snap_di_rates(rates, mm, basis_date, rule_change_date)
+  }
 
-  # Optional snap of OUTPUT rate to tick grid
-  if (snap_to_tick) rates <- .snap_rate_to_tick(rates, mm, basis_date, rule_change_date)
-
-  # Tick-size and tick-value for information
   tick_size  <- .get_di_tick_size(mm, basis_date, rule_change_date)
-  deriv_pp   <- -(n/252) * pu / (100 * (1 + rates/100))
+  deriv_pp   <- -(n / 252) * pu / (100 * (1 + rates / 100))
   tick_value <- abs(deriv_pp) * tick_size
 
   list(
-    valid_days = n,
+    valid_days = as.integer(n),
     rates      = as.numeric(rates),
     tick_size  = tick_size,
     tick_value = as.numeric(tick_value)
   )
 }
 
-#' Estimate DI "settlement-like" PU from daily bars (no intraday)
+#' Estimate DI settlement PU from daily OHLC data
 #'
-#' Strategy:
-#'  1) Choose an anchor daily rate (prefer day VWAP if available, else close, else mid(H/L), else open).
-#'  2) Snap the anchor to the valid DI tick grid for its tenor bucket.
-#'  3) Optional bias correction in percentage points, learned from history (EMA of settle - anchor).
-#'  4) Convert the adjusted rate to PU using correct business-day count.
+#' Derive a settlement-like PU from daily DI futures rates. Selection priority for
+#' the anchor rate can be customised, a bias adjustment (in percentage points) can
+#' be applied, and the result optionally snaps to the DI tick grid.
 #'
-#' This will typically beat a naive 'close->PU' approach and stay stable for sizing.
-#' @param open,high,low,close Numeric rates in percent (daily OHLC).
-#' @param average_price Optional numeric (%), day VWAP if you have it.
-#' @param maturity_date Date of maturity (preferred) or business days.
-#' @param basis_date The daily bar date used for day-count.
-#' @param cal bizdays calendar.
-#' @param include_basis_day Include basis in day-count. See .biz_n.
-#' @param prefer One of c("average_price","close","mid","open") for anchor priority.
-#' @param bias_pp Numeric, fixed bias in percentage points to add to the anchor (default 0).
-#' @param snap_to_tick Snap anchor (+bias) to tick grid before PU (default TRUE).
-#' @param rule_change_date Tick regime cutoff.
-#' @return list(rate_anchor, rate_adj, pu_est, valid_days, tick_size)
+#' @param open,high,low,close Daily OHLC rates (percent per year).
+#' @param average_price Optional VWAP (percent per year).
+#' @inheritParams calculate_futures_di_notional
+#' @param basis_date Date of the OHLC bar.
+#' @param prefer Anchor preference order (`"average_price"`, `"close"`, `"mid"`, `"open"`).
+#' @param bias_pp Fixed adjustment in percentage points added to the anchor rate.
+#'
+#' @return A list with elements `rate_anchor`, `rate_adj`, `pu_est`, `valid_days`, and `tick_size`.
 #' @export
 estimate_pu_from_daily_ohlc <- function(
     open, high, low, close,
@@ -228,327 +336,121 @@ estimate_pu_from_daily_ohlc <- function(
     basis_date,
     cal = NULL,
     include_basis_day = TRUE,
-    prefer = c("average_price","close","mid","open"),
+    prefer = c("average_price", "close", "mid", "open"),
     bias_pp = 0,
     snap_to_tick = TRUE,
     rule_change_date = as.Date("2025-08-25")
 ) {
-  if (is.null(cal)) {
-    cal <- bizdays::create.calendar(
-      name      = "Brazil/ANBIMA",
-      holidays  = bizdays::holidays("Brazil/ANBIMA"),
-      weekdays  = c("saturday", "sunday")
-    )
-  }
+  cal <- .resolve_di_calendar(cal)
   basis_date <- as.Date(basis_date)
   prefer <- match.arg(prefer)
 
-  # Resolve maturity, n, mm
-  if (inherits(maturity_date, "Date")) {
-    md <- as.Date(maturity_date)
-    n  <- .biz_n(basis_date, md, cal, include_basis_day = include_basis_day)
-    mm <- .months_between_floor(basis_date, md)
-  } else if (is.numeric(maturity_date)) {
-    md <- NA
-    n  <- as.integer(maturity_date)
-    mm <- n / 21
-  } else {
-    stop("'maturity_date' must be Date or numeric business days.")
-  }
-  if (n <= 0) stop("Number of business days to maturity must be positive.")
+  tenor <- .resolve_di_tenor(
+    maturity_date = maturity_date,
+    basis_date = basis_date,
+    cal = cal,
+    include_basis_day = include_basis_day
+  )
+  n  <- tenor$valid_days
+  mm <- tenor$months_bucket
+
   tick_size <- .get_di_tick_size(mm, basis_date, rule_change_date)
 
-  # Choose anchor
-  pick <- function(...) {
+  pick_first <- function(...) {
     xs <- list(...)
     xs <- xs[!vapply(xs, function(z) is.null(z) || !is.finite(z), logical(1))]
     if (length(xs) == 0) stop("No valid OHLC values.")
     xs[[1]]
   }
-  mid <- if (is.finite(high) && is.finite(low)) (high + low)/2 else NA_real_
+
+  mid <- if (is.finite(high) && is.finite(low)) (high + low) / 2 else NA_real_
 
   rate_anchor <- switch(
     prefer,
-    average_price = pick(average_price, close, mid, open),
-    close         = pick(close, average_price, mid, open),
-    mid           = pick(mid, average_price, close, open),
-    open          = pick(open, average_price, close, mid)
+    average_price = pick_first(average_price, close, mid, open),
+    close         = pick_first(close, average_price, mid, open),
+    mid           = pick_first(mid, average_price, close, open),
+    open          = pick_first(open, average_price, close, mid)
   )
 
-  # Bias adjustment (percentage points, not basis points)
   rate_adj <- as.numeric(rate_anchor) + as.numeric(bias_pp)
+  if (snap_to_tick) {
+    rate_adj <- .snap_di_rates(rate_adj, mm, basis_date, rule_change_date)
+  }
 
-  # Optional snap to tick grid
-  if (snap_to_tick) rate_adj <- .snap_rate_to_tick(rate_adj, mm, basis_date, rule_change_date)
-
-  # Convert to PU
-  pu <- 1e5 / (1 + rate_adj/100)^(n/252)
-  pu <- round(pu, 2L)
+  pu <- .di_pu_from_rate(rate_adj, n, round_pu = TRUE)
 
   list(
     rate_anchor = as.numeric(rate_anchor),
     rate_adj    = as.numeric(rate_adj),
     pu_est      = as.numeric(pu),
-    valid_days  = n,
+    valid_days  = as.integer(n),
     tick_size   = tick_size
   )
 }
 
-# Learn a small bias (in percentage points) as EMA of (settle_rate - anchor_rate).
-# Use yesterday's info only when projecting today's PU without intraday.
+#' Exponentially-weighted bias in percentage points
+#'
+#' @param settle_rate_hist Historical settle rates (percent).
+#' @param anchor_rate_hist Historical anchor rates (percent), same length as `settle_rate_hist`.
+#' @param lambda Smoothing factor in (0, 1].
+#'
+#' @return The exponentially-weighted bias (settle minus anchor) in percentage points.
+#' @export
 learn_bias_pp_ema <- function(settle_rate_hist, anchor_rate_hist, lambda = 0.2) {
   stopifnot(length(settle_rate_hist) == length(anchor_rate_hist))
+  if (!(lambda > 0 && lambda <= 1)) stop("'lambda' must be in (0, 1].")
+
   diffs <- settle_rate_hist - anchor_rate_hist
-  # Simple recursive EMA
   ema <- 0
-  for (d in diffs) ema <- lambda * d + (1 - lambda) * ema
+  for (d in diffs) {
+    if (!is.finite(d)) next
+    ema <- lambda * d + (1 - lambda) * ema
+  }
   as.numeric(ema)
 }
 
-# Convert DI daily OHLC rates (%) to PU columns (PU_o, PU_h, PU_l, PU_c)
-# - Assumes input xts has daily bars with columns named (case-insensitive):
-#   "open", "high", "low", "close" (rates in percent per year).
-# - Uses B3 convention: PU = 100000 / (1 + r/100)^(n/252)
-# - 'n' = business days from basis date (row index) to maturity (see include_basis_day).
-# - By default, does NOT snap rates to the DI tick grid (set snap_to_tick=TRUE to enable).
-# - Returns a new xts with four columns: PU_o, PU_h, PU_l, PU_c.
-# Convert DI daily OHLC rates (%) to PU columns (PU_o, PU_h, PU_l, PU_c)
-# - Input: xts with columns open/high/low/close (rates in % p.a.)
-# - PU = 100000 / (1 + r/100)^(n/252)
-# - 'n' = business days from row date (basis) to maturity
+#' Convert DI OHLC rates to PU columns (xts)
+#'
+#' Adds PU columns (`PU_o`, `PU_h`, `PU_l`, `PU_c`) to a daily xts of DI rates. The
+#' conversion follows the B3 convention `PU = 100000 / (1 + r/100)^(n/252)` with an
+#' explicit business-day count and optional snap to the DI tick grid.
+#'
+#' @param x xts object with daily OHLC rates (percent per year).
+#' @param maturity_date Maturity `Date` or business days to expiry. If `NULL`, the
+#'   function looks for a `"maturity"` attribute on `x` (either a `Date` or
+#'   character parsable via `as.Date`).
+#' @inheritParams calculate_futures_di_notional
+#' @param round_pu Round the output PUs to two decimals.
+#'
+#' @return An xts object containing the PU columns.
+#' @export
 ohlc_rates_to_pu_xts <- function(
     x,
-    maturity_date,
+    maturity_date = NULL,
     cal = NULL,
     include_basis_day = TRUE,
     snap_to_tick = FALSE,
     rule_change_date = as.Date("2025-08-25"),
     round_pu = TRUE
 ) {
-  if (!xts::is.xts(x)) stop("'x' must be an xts object.")
+  if (!is.xts(x)) stop("'x' must be an xts object.")
   if (NROW(x) == 0) return(x)
 
-  # Calendar
-  if (is.null(cal)) {
-    cal <- bizdays::create.calendar(
-      name = "Brazil/ANBIMA",
-      holidays = bizdays::holidays("Brazil/ANBIMA"),
-      weekdays = c("saturday","sunday")
-    )
+  cal <- .resolve_di_calendar(cal)
+  maturity_date <- .resolve_maturity_input(maturity_date, x)
+  if (is.null(maturity_date)) {
+    stop("Provide 'maturity_date' or set a 'maturity' attribute on 'x'.")
   }
 
-  # Column resolution (case-insensitive)
-  nm <- tolower(colnames(x))
-  find_col <- function(targets) {
-    idx <- match(targets, nm, nomatch = 0L)
-    idx <- idx[idx > 0L]
-    if (length(idx) == 0L) return(NA_integer_)
-    idx[1L]
-  }
-  i_open  <- find_col(c("open","o"))
-  i_high  <- find_col(c("high","h"))
-  i_low   <- find_col(c("low","l"))
-  i_close <- find_col(c("close","c","last","settle","settlement_price"))
-  if (any(is.na(c(i_open,i_high,i_low,i_close))))
-    stop("Could not resolve OHLC columns (need open/high/low/close as rate %).")
+  cols <- .resolve_ohlc_columns(x)
+  r_open  <- as.numeric(x[, cols$open])
+  r_high  <- as.numeric(x[, cols$high])
+  r_low   <- as.numeric(x[, cols$low])
+  r_close <- as.numeric(x[, cols$close])
 
-  r_open  <- as.numeric(x[, i_open])
-  r_high  <- as.numeric(x[, i_high])
-  r_low   <- as.numeric(x[, i_low])
-  r_close <- as.numeric(x[, i_close])
+  idx_dates <- index(x)
 
-  # ---- Helpers ----
-  # Integer months between (floor) for tick-bucket selection
-  .months_between_floor <- function(basis_date, maturity_date) {
-    as.integer(
-      lubridate::interval(as.Date(basis_date), as.Date(maturity_date)) %/% months(1)
-    )
-  }
-  .get_di_tick_size <- function(mm, basis_date, rule_change_date) {
-    bd <- as.Date(basis_date)
-    if (bd < rule_change_date) {
-      if (mm <= 3) 0.001 else if (mm <= 60) 0.005 else 0.010
-    } else {
-      if (mm <= 3) 0.001 else 0.005
-    }
-  }
-  .snap_one <- function(rate, mm, basis_date) {
-    tick <- .get_di_tick_size(mm, basis_date, rule_change_date)
-    round(rate / tick) * tick
-  }
-  .biz_n <- function(basis_date, maturity_date, cal, include_basis_day = TRUE) {
-    n <- bizdays::bizdays(as.Date(basis_date), as.Date(maturity_date), cal)
-    if (include_basis_day) n <- n + as.integer(bizdays::is.bizday(as.Date(basis_date), cal))
-    if (n <= 0) stop("Non-positive valid-days. Check basis/maturity and calendar.")
-    n
-  }
-
-  # Day index
-  idx_dates <- zoo::index(x)
-
-  # Resolve n (valid business days) and mm (integer months) per row
-  if (inherits(maturity_date, "Date")) {
-    md <- as.Date(maturity_date)
-    n_vec <- vapply(
-      idx_dates,
-      function(d) .biz_n(d, md, cal, include_basis_day = include_basis_day),
-      numeric(1)  # numeric is safer; we don't care about integer storage
-    )
-    mm_vec <- vapply(
-      idx_dates,
-      function(d) .months_between_floor(d, md),
-      integer(1)  # now truly integer due to as.integer() in helper
-    )
-  } else if (is.numeric(maturity_date)) {
-    n_const <- as.integer(maturity_date)
-    if (n_const <= 0) stop("'maturity_date' as numeric must be positive business days.")
-    n_vec <- rep.int(n_const, length(idx_dates))
-    mm_vec <- as.numeric(n_vec) / 21  # coarse proxy (only for tick bucket)
-  } else {
-    stop("'maturity_date' must be a Date or numeric business days.")
-  }
-
-  # Optional tick snapping
-  if (snap_to_tick) {
-    r_open  <- mapply(.snap_one,  r_open,  mm_vec, idx_dates)
-    r_high  <- mapply(.snap_one,  r_high,  mm_vec, idx_dates)
-    r_low   <- mapply(.snap_one,  r_low,   mm_vec, idx_dates)
-    r_close <- mapply(.snap_one,  r_close, mm_vec, idx_dates)
-  }
-
-  # Vectorized PU conversion
-  pu_from_rate <- function(r, n) {
-    bad <- !is.finite(r) | r <= -100
-    out <- 1e5 / (1 + r/100)^(n/252)
-    out[bad] <- NA_real_
-    if (round_pu) out <- round(out, 2L)
-    out
-  }
-  PU_o <- pu_from_rate(r_open,  n_vec)
-  PU_h <- pu_from_rate(r_high,  n_vec)
-  PU_l <- pu_from_rate(r_low,   n_vec)
-  PU_c <- pu_from_rate(r_close, n_vec)
-
-  res <- xts::xts(
-    cbind(PU_o = as.numeric(PU_o),
-          PU_h = as.numeric(PU_h),
-          PU_l = as.numeric(PU_l),
-          PU_c = as.numeric(PU_c)),
-    order.by = idx_dates, tzone = attr(x, "tzone")
-  )
-  colnames(res) <- c("PU_o","PU_h","PU_l","PU_c")
-  res
-}
-
-# Augment a daily DI OHLC xts (% p.a.) with PU columns and round-trip diagnostics
-# Input:
-#   x : xts with daily OHLC rate columns in percent per year (case-insensitive: open/high/low/close)
-#       Optionally includes a "volume" column (or similar); if present, it is kept.
-#   maturity_date : Date (preferred) or integer business days to maturity (constant for all rows)
-#   cal : bizdays calendar (default Brazil/ANBIMA)
-#   include_basis_day : include the basis day in valid-days count (see .biz_n)
-#   snap_to_tick : snap input OHLC rates to DI tick grid before PU conversion
-#   rule_change_date : tick regime change cutoff (kept configurable)
-#   round_pu : round PUs to 2 decimals (B3 convention prints cents)
-#   snap_rates_back : snap the round-tripped (backed-out) rates to the tick grid
-#
-# Output: xts with columns:
-#   [open, high, low, close, (volume?)]
-#   PU_o, PU_h, PU_l, PU_c
-#   adjOpen, adjHigh, adjLow, adjClose
-#   adjPU_o, adjPU_h, adjPU_l, adjPU_c
-#   diffOpen_pp, diffHigh_pp, diffLow_pp, diffClose_pp  (adj - original, in percentage points)
-#   diffPU_o, diffPU_h, diffPU_l, diffPU_c             (adjPU - PU, in PU units)
-di_ohlc_to_pu_augmented_xts <- function(
-    x,
-    maturity_date,
-    cal = NULL,
-    include_basis_day = TRUE,
-    snap_to_tick = FALSE,
-    rule_change_date = as.Date("2025-08-25"),
-    round_pu = FALSE,
-    snap_rates_back = FALSE
-) {
-  # --- Basic checks ---
-  if (!xts::is.xts(x)) stop("'x' must be an xts object.")
-  if (NROW(x) == 0) return(x)
-
-  # --- Calendar ---
-  if (is.null(cal)) {
-    cal <- bizdays::create.calendar(
-      name = "Brazil/ANBIMA",
-      holidays = bizdays::holidays("Brazil/ANBIMA"),
-      weekdays = c("saturday","sunday")
-    )
-  }
-
-  # --- Column resolution (case-insensitive, tolerant) ---
-  nm <- tolower(colnames(x))
-  find_col <- function(candidates) {
-    idx <- match(candidates, nm, nomatch = 0L)
-    idx <- idx[idx > 0L]
-    if (length(idx) == 0L) return(NA_integer_)
-    idx[1L]
-  }
-  i_open  <- find_col(c("open","o"))
-  i_high  <- find_col(c("high","h"))
-  i_low   <- find_col(c("low","l"))
-  i_close <- find_col(c("close","c","last","settle","settlement_price"))
-  if (any(is.na(c(i_open,i_high,i_low,i_close))))
-    stop("Could not resolve OHLC columns (need open/high/low/close as rate %).")
-
-  # Optional volume-like column (keep first match if any)
-  i_vol <- find_col(c("volume","vol","contracts_traded","qty","contracts","volume_brl","volume_brls"))
-
-  r_open  <- as.numeric(x[, i_open])
-  r_high  <- as.numeric(x[, i_high])
-  r_low   <- as.numeric(x[, i_low])
-  r_close <- as.numeric(x[, i_close])
-
-  idx_dates <- zoo::index(x)
-
-  # --- Helpers (pure, local) ---
-  .months_between_floor <- function(basis_date, maturity_date) {
-    as.integer(
-      lubridate::interval(as.Date(basis_date), as.Date(maturity_date)) %/% months(1)
-    )
-  }
-  .get_di_tick_size <- function(mm, basis_date, rule_change_date) {
-    bd <- as.Date(basis_date)
-    if (bd < rule_change_date) {
-      if (mm <= 3) 0.001 else if (mm <= 60) 0.005 else 0.010
-    } else {
-      if (mm <= 3) 0.001 else 0.005
-    }
-  }
-  .snap_one_rate <- function(rate, mm, basis_date) {
-    tick <- .get_di_tick_size(mm, basis_date, rule_change_date)
-    round(rate / tick) * tick
-  }
-  .biz_n <- function(basis_date, maturity_date, cal, include_basis_day = TRUE) {
-    # bizdays(a,b) counts business days excluding 'a' and including 'b'
-    n <- bizdays::bizdays(as.Date(basis_date), as.Date(maturity_date), cal)
-    if (include_basis_day) {
-      n <- n + as.integer(bizdays::is.bizday(as.Date(basis_date), cal))
-    }
-    if (n <= 0) stop("Non-positive valid-days. Check basis/maturity and calendar.")
-    n
-  }
-  .pu_from_rate <- function(r, n, round_pu) {
-    bad <- !is.finite(r) | r <= -100
-    out <- 1e5 / (1 + r/100)^(n/252)
-    out[bad] <- NA_real_
-    if (round_pu) out <- round(out, 2L)
-    out
-  }
-  .rate_from_pu <- function(pu, n) {
-    bad <- !is.finite(pu) | pu <= 0
-    out <- 100 * ((1e5 / pu)^(252 / n) - 1)
-    out[bad] <- NA_real_
-    out
-  }
-
-  # --- Resolve n (valid business days) and mm (months) per row ---
   if (inherits(maturity_date, "Date")) {
     md <- as.Date(maturity_date)
     n_vec <- vapply(
@@ -559,129 +461,182 @@ di_ohlc_to_pu_augmented_xts <- function(
     mm_vec <- vapply(
       idx_dates,
       function(d) .months_between_floor(d, md),
-      integer(1)
+      numeric(1)
     )
   } else if (is.numeric(maturity_date)) {
     n_const <- as.integer(maturity_date)
     if (n_const <= 0) stop("'maturity_date' as numeric must be positive business days.")
     n_vec <- rep.int(n_const, length(idx_dates))
-    mm_vec <- as.numeric(n_vec) / 21  # coarse proxy only for tick-bucket selection
-    md <- NA
+    mm_vec <- rep_len(as.numeric(n_const) / 21, length(idx_dates))
   } else {
     stop("'maturity_date' must be a Date or numeric business days.")
   }
 
-  # --- Optional: snap input rates to DI tick grid (per row) ---
   if (snap_to_tick) {
-    r_open  <- mapply(.snap_one_rate, r_open,  mm_vec, idx_dates)
-    r_high  <- mapply(.snap_one_rate, r_high,  mm_vec, idx_dates)
-    r_low   <- mapply(.snap_one_rate, r_low,   mm_vec, idx_dates)
-    r_close <- mapply(.snap_one_rate, r_close, mm_vec, idx_dates)
+    r_open  <- .snap_di_rates(r_open,  mm_vec, idx_dates, rule_change_date)
+    r_high  <- .snap_di_rates(r_high,  mm_vec, idx_dates, rule_change_date)
+    r_low   <- .snap_di_rates(r_low,   mm_vec, idx_dates, rule_change_date)
+    r_close <- .snap_di_rates(r_close, mm_vec, idx_dates, rule_change_date)
   }
 
-  # --- Forward: rates -> PU (vectorized) ---
-  PU_o <- .pu_from_rate(r_open,  n_vec, round_pu)
-  PU_h <- .pu_from_rate(r_high,  n_vec, round_pu)
-  PU_l <- .pu_from_rate(r_low,   n_vec, round_pu)
-  PU_c <- .pu_from_rate(r_close, n_vec, round_pu)
+  PU_o <- .di_pu_from_rate(r_open,  n_vec, round_pu = round_pu)
+  PU_h <- .di_pu_from_rate(r_high,  n_vec, round_pu = round_pu)
+  PU_l <- .di_pu_from_rate(r_low,   n_vec, round_pu = round_pu)
+  PU_c <- .di_pu_from_rate(r_close, n_vec, round_pu = round_pu)
 
-  # --- Backward: PU -> rates (round-trip using the *rounded* PUs) ---
-  adjOpen  <- .rate_from_pu(PU_o, n_vec)
-  adjHigh  <- .rate_from_pu(PU_h, n_vec)
-  adjLow   <- .rate_from_pu(PU_l, n_vec)
-  adjClose <- .rate_from_pu(PU_c, n_vec)
+  xts(
+    cbind(
+      PU_o = as.numeric(PU_o),
+      PU_h = as.numeric(PU_h),
+      PU_l = as.numeric(PU_l),
+      PU_c = as.numeric(PU_c)
+    ),
+    order.by = idx_dates,
+    tzone = attr(x, "tzone")
+  )
+}
 
-  # Optionally snap the round-tripped rates to the tick grid
-  if (snap_rates_back) {
-    adjOpen  <- mapply(.snap_one_rate, adjOpen,  mm_vec, idx_dates)
-    adjHigh  <- mapply(.snap_one_rate, adjHigh,  mm_vec, idx_dates)
-    adjLow   <- mapply(.snap_one_rate, adjLow,   mm_vec, idx_dates)
-    adjClose <- mapply(.snap_one_rate, adjClose, mm_vec, idx_dates)
+#' Augment DI OHLC data with PU and diagnostics
+#'
+#' Enhances a DI futures OHLC xts with PU columns computed via the B3 convention.
+#' Optionally, the function can round-trip the PUs back to rates and report
+#' diagnostics on the differences.
+#'
+#' @param x xts with DI OHLC rates (percent per year). A volume column (if present)
+#'   is preserved.
+#' @param snap_rates_back Snap the round-tripped rates back to the DI tick grid.
+#'   When set to `TRUE`, diagnostics columns are returned.
+#' @param include_diagnostics When `TRUE`, adds the round-tripped rates/PUs and the
+#'   differences versus the original inputs. This is implicitly enabled when
+#'   `snap_rates_back = TRUE`.
+#' @inheritParams ohlc_rates_to_pu_xts
+#'
+#' @return An xts object with the original OHLC columns, PU columns, and optional diagnostics.
+#' @export
+di_ohlc_to_pu_augmented_xts <- function(
+    x,
+    maturity_date = NULL,
+    cal = NULL,
+    include_basis_day = TRUE,
+    snap_to_tick = FALSE,
+    rule_change_date = as.Date("2025-08-25"),
+    round_pu = FALSE,
+    snap_rates_back = FALSE,
+    include_diagnostics = FALSE
+) {
+  if (!is.xts(x)) stop("'x' must be an xts object.")
+  if (NROW(x) == 0) return(x)
+
+  cal <- .resolve_di_calendar(cal)
+  if (snap_rates_back && !include_diagnostics) include_diagnostics <- TRUE
+  maturity_date <- .resolve_maturity_input(maturity_date, x)
+  if (is.null(maturity_date)) {
+    stop("Provide 'maturity_date' or set a 'maturity' attribute on 'x'.")
   }
 
-  # --- Close the loop: adj rates -> adjPU (should match PU_* up to rounding) ---
-  adjPU_o <- .pu_from_rate(adjOpen,  n_vec, round_pu)
-  adjPU_h <- .pu_from_rate(adjHigh,  n_vec, round_pu)
-  adjPU_l <- .pu_from_rate(adjLow,   n_vec, round_pu)
-  adjPU_c <- .pu_from_rate(adjClose, n_vec, round_pu)
+  cols <- .resolve_ohlc_columns(x)
+  r_open  <- as.numeric(x[, cols$open])
+  r_high  <- as.numeric(x[, cols$high])
+  r_low   <- as.numeric(x[, cols$low])
+  r_close <- as.numeric(x[, cols$close])
 
-  # --- Diffs for diagnostics ---
-  diffOpen_pp  <- adjOpen  - r_open
-  diffHigh_pp  <- adjHigh  - r_high
-  diffLow_pp   <- adjLow   - r_low
-  diffClose_pp <- adjClose - r_close
+  idx_dates <- index(x)
 
-  diffPU_o <- adjPU_o - PU_o
-  diffPU_h <- adjPU_h - PU_h
-  diffPU_l <- adjPU_l - PU_l
-  diffPU_c <- adjPU_c - PU_c
+  if (inherits(maturity_date, "Date")) {
+    md <- as.Date(maturity_date)
+    n_vec <- vapply(
+      idx_dates,
+      function(d) .biz_n(d, md, cal, include_basis_day = include_basis_day),
+      numeric(1)
+    )
+    mm_vec <- vapply(
+      idx_dates,
+      function(d) .months_between_floor(d, md),
+      numeric(1)
+    )
+  } else if (is.numeric(maturity_date)) {
+    n_const <- as.integer(maturity_date)
+    if (n_const <= 0) stop("'maturity_date' as numeric must be positive business days.")
+    n_vec <- rep.int(n_const, length(idx_dates))
+    mm_vec <- rep_len(as.numeric(n_const) / 21, length(idx_dates))
+  } else {
+    stop("'maturity_date' must be a Date or numeric business days.")
+  }
 
-  # --- Assemble result xts ---
+  if (snap_to_tick) {
+    r_open  <- .snap_di_rates(r_open,  mm_vec, idx_dates, rule_change_date)
+    r_high  <- .snap_di_rates(r_high,  mm_vec, idx_dates, rule_change_date)
+    r_low   <- .snap_di_rates(r_low,   mm_vec, idx_dates, rule_change_date)
+    r_close <- .snap_di_rates(r_close, mm_vec, idx_dates, rule_change_date)
+  }
+
+  PU_o <- .di_pu_from_rate(r_open,  n_vec, round_pu = round_pu)
+  PU_h <- .di_pu_from_rate(r_high,  n_vec, round_pu = round_pu)
+  PU_l <- .di_pu_from_rate(r_low,   n_vec, round_pu = round_pu)
+  PU_c <- .di_pu_from_rate(r_close, n_vec, round_pu = round_pu)
+
   base_cols <- cbind(
     open  = r_open,
     high  = r_high,
     low   = r_low,
     close = r_close
   )
-  if (!is.na(i_vol)) {
-    base_cols <- cbind(base_cols, volume = as.numeric(x[, i_vol]))
+  if (!is.na(cols$volume)) {
+    base_cols <- cbind(base_cols, volume = as.numeric(x[, cols$volume]))
   }
 
-  res <- xts::xts(
-    cbind(
-      base_cols,
-      PU_o = as.numeric(PU_o),
-      PU_h = as.numeric(PU_h),
-      PU_l = as.numeric(PU_l),
-      PU_c = as.numeric(PU_c)
-      # adjOpen  = as.numeric(adjOpen),
-      # adjHigh  = as.numeric(adjHigh),
-      # adjLow   = as.numeric(adjLow),
-      # adjClose = as.numeric(adjClose),
-      # adjPU_o = as.numeric(adjPU_o),
-      # adjPU_h = as.numeric(adjPU_h),
-      # adjPU_l = as.numeric(adjPU_l),
-      # adjPU_c = as.numeric(adjPU_c),
-      # diffOpen_pp  = as.numeric(diffOpen_pp),
-      # diffHigh_pp  = as.numeric(diffHigh_pp),
-      # diffLow_pp   = as.numeric(diffLow_pp),
-      # diffClose_pp = as.numeric(diffClose_pp),
-      # diffPU_o = as.numeric(diffPU_o),
-      # diffPU_h = as.numeric(diffPU_h),
-      # diffPU_l = as.numeric(diffPU_l),
-      # diffPU_c = as.numeric(diffPU_c)
-    ),
+  res_mat <- cbind(
+    base_cols,
+    PU_o = as.numeric(PU_o),
+    PU_h = as.numeric(PU_h),
+    PU_l = as.numeric(PU_l),
+    PU_c = as.numeric(PU_c)
+  )
+
+  if (include_diagnostics || snap_rates_back) {
+    adjOpen  <- .di_rate_from_pu(PU_o, n_vec)
+    adjHigh  <- .di_rate_from_pu(PU_h, n_vec)
+    adjLow   <- .di_rate_from_pu(PU_l, n_vec)
+    adjClose <- .di_rate_from_pu(PU_c, n_vec)
+
+    if (snap_rates_back) {
+      adjOpen  <- .snap_di_rates(adjOpen,  mm_vec, idx_dates, rule_change_date)
+      adjHigh  <- .snap_di_rates(adjHigh,  mm_vec, idx_dates, rule_change_date)
+      adjLow   <- .snap_di_rates(adjLow,   mm_vec, idx_dates, rule_change_date)
+      adjClose <- .snap_di_rates(adjClose, mm_vec, idx_dates, rule_change_date)
+    }
+
+    adjPU_o <- .di_pu_from_rate(adjOpen,  n_vec, round_pu = round_pu)
+    adjPU_h <- .di_pu_from_rate(adjHigh,  n_vec, round_pu = round_pu)
+    adjPU_l <- .di_pu_from_rate(adjLow,   n_vec, round_pu = round_pu)
+    adjPU_c <- .di_pu_from_rate(adjClose, n_vec, round_pu = round_pu)
+
+    if (include_diagnostics) {
+      res_mat <- cbind(
+        res_mat,
+        adjOpen  = as.numeric(adjOpen),
+        adjHigh  = as.numeric(adjHigh),
+        adjLow   = as.numeric(adjLow),
+        adjClose = as.numeric(adjClose),
+        adjPU_o  = as.numeric(adjPU_o),
+        adjPU_h  = as.numeric(adjPU_h),
+        adjPU_l  = as.numeric(adjPU_l),
+        adjPU_c  = as.numeric(adjPU_c),
+        diffOpen_pp  = as.numeric(adjOpen  - r_open),
+        diffHigh_pp  = as.numeric(adjHigh  - r_high),
+        diffLow_pp   = as.numeric(adjLow   - r_low),
+        diffClose_pp = as.numeric(adjClose - r_close),
+        diffPU_o = as.numeric(adjPU_o - PU_o),
+        diffPU_h = as.numeric(adjPU_h - PU_h),
+        diffPU_l = as.numeric(adjPU_l - PU_l),
+        diffPU_c = as.numeric(adjPU_c - PU_c)
+      )
+    }
+  }
+
+  xts(
+    res_mat,
     order.by = idx_dates,
     tzone = attr(x, "tzone")
   )
-  res
 }
-
-
-# calendar
-cal <- bizdays::create.calendar("Brazil/ANBIMA",
-                                holidays = holidays("Brazil/ANBIMA"),
-                                weekdays = c("saturday","sunday"))
-
-# maturidade do DI1F11 (1º dia útil do mês)
-di_maturity_from_ticker <- function(ticker, cal) {
-  month_letter <- c(F=1,G=2,H=3,J=4,K=5,M=6,N=7,Q=8,U=9,V=10,X=11,Z=12)
-  m <- month_letter[substr(ticker, 4, 4)]
-  y2 <- as.integer(substr(ticker, 5, 6))
-  y4 <- ifelse(y2 >= 90, 1900 + y2, 2000 + y2)
-  first_day <- as.Date(sprintf("%04d-%02d-01", y4, m))
-  bizdays::adjust.next(first_day, cal)
-}
-md <- di_maturity_from_ticker("DI1F11", cal)
-
-pu_xts <- di_ohlc_to_pu_augmented_xts(
-  tudo$DI1F11[, c("open","high","low","close","volume")],
-  maturity_date = md,
-  cal = cal,
-  include_basis_day = FALSE,
-  snap_to_tick = FALSE,    # set TRUE if your OHLC are off-grid (non-tick)
-  round_pu = FALSE,
-  snap_rates_back = FALSE  # set TRUE to see round-trip on the official tick lattice
-)
-head(pu_xts)
-

@@ -26,12 +26,10 @@ are inferred.}
 
 \item{verbose}{If `TRUE`, emit informative messages.}
 
-\item{return}{Controls what is returned. `"agg"` (default) returns the
-aggregate data frame; `"list"` returns a list containing the data and
-underlying file path.}
+\item{tz}{Time zone assigned to the returned xts index.}
 }
 \value{
-A data frame containing the requested series; an empty data frame is
+An xts object containing the requested series; an empty data frame is
   returned when the ticker is not found.
 }
 \description{

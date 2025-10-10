@@ -33,6 +33,9 @@ are inferred.}
 
 \item{verbose}{If `TRUE`, emit progress messages while building the series.}
 
+\item{estimate_maturity}{If `TRUE`, estimate contract maturities using the
+package calendar and store them in the output.}
+
 \item{return}{Controls what is returned. `"list"` (default) returns the
 per-contract xts objects; `"agg"` returns the aggregated data frame.}
 }

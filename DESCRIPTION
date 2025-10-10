@@ -19,5 +19,6 @@ Imports:
     xts,
     readxl,
     bizdays,
-    lubridate
+    lubridate,
+    zoo
 RoxygenNote: 7.3.2

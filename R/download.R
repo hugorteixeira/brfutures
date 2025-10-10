@@ -471,6 +471,8 @@ bmf_collect_contracts <- function(ticker_root,
 #' @param which Storage location passed to `tools::R_user_dir` when directories
 #'   are inferred.
 #' @param verbose If `TRUE`, emit progress messages while building the series.
+#' @param estimate_maturity If `TRUE`, estimate contract maturities using the
+#'   package calendar and store them in the output.
 #' @param return Controls what is returned. `"list"` (default) returns the
 #'   per-contract xts objects; `"agg"` returns the aggregated data frame.
 #'
@@ -546,7 +548,7 @@ bmf_build_contract_series <- function(ticker_root,
     if (!length(numeric_cols)) {
       next
     }
-    xts_obj <- xts::xts(as.matrix(df[numeric_cols]), order.by = df$date)
+    xts_obj <- xts(as.matrix(df[numeric_cols]), order.by = df$date)
     colnames(xts_obj) <- numeric_cols
     series_name <- paste0(ticker_root_norm, code)
     series_list[[series_name]] <- xts_obj
@@ -599,7 +601,8 @@ bmf_build_contract_series <- function(ticker_root,
 #' @param skip_existing If `TRUE`, skip dates that already have a saved report.
 #' @param which Storage location passed to `tools::R_user_dir` when `dest_dir`
 #'   is `NULL`.
-#'
+#' @param verbose If `TRUE`, emit progress messages and download stats.
+#' 
 #' @return Invisibly returns a data frame summarising download results.
 #' @export
 bmf_download_history <- function(ticker_root,
@@ -828,6 +831,11 @@ bmf_list_ticker_roots <- function() {
 #'   cache directory for the ticker when `NULL`.
 #' @param which Storage location passed to `tools::R_user_dir` when directories
 #'   are inferred.
+#' @param ohlc_locf If `TRUE`, forward-fill OHLC gaps per contract before
+#'   returning the data.
+#' @param return Controls the output: `"agg"` (default) returns the aggregate
+#'   data frame; `"list"` returns a split list of data frames with a `path`
+#'   attribute referencing the aggregate file.
 #'
 #' @return A data frame with the aggregated data or an empty data frame if the
 #'   aggregate is missing. Prints the path when found.
@@ -889,11 +897,9 @@ bmf_get_aggregate <- function(ticker_root,
 #'   are inferred.
 #' @param type One of `"full"`, `"ohlc"`, or `"ohlcv_locf"`.
 #' @param verbose If `TRUE`, emit informative messages.
-#' @param return Controls what is returned. `"agg"` (default) returns the
-#'   aggregate data frame; `"list"` returns a list containing the data and
-#'   underlying file path.
+#' @param tz Time zone assigned to the returned xts index.
 #'
-#' @return A data frame containing the requested series; an empty data frame is
+#' @return An xts object containing the requested series; an empty data frame is
 #'   returned when the ticker is not found.
 #' @export
 bmf_get_series <- function(ticker,
@@ -956,20 +962,18 @@ bmf_get_series <- function(ticker,
   subset$volume <- as.numeric(subset$volume)
   mask <- !(subset$open == 0 & subset$high == 0 &
               subset$low == 0 & subset$close == 0)
-  subset <- subset[mask, ]
-  dates <- as.POSIXct(as.Date(subset$date), tz = "UTC")
-  datas <- lubridate::force_tz(subset$date, tzone = "America/Sao_Paulo")
-
-  subset_xts <- xts(subset[, c("open", "high", "low", "close", "volume")],
-                    order.by = datas)
-  colnames(subset_xts) <- c("Open","High","Low","Close","Volume")
-#   subset$date <- as.POSIXct(subset$date, format = "%Y-%m-%d", tz = "UTC")
-
-  #subset_xts <- xts(subset[, -which(names(subset) %in% c("date", "DATE"))],
-   #                 order.by = subset$date)
-  #subset_xts
-subset_xts
+  subset <- subset[mask, , drop = FALSE]
+  if (!nrow(subset)) {
+    return(.bmf_empty_bulletin_dataframe())
   }
+  idx <- force_tz(as.POSIXct(subset$date), tzone = tz)
+  subset_xts <- xts(
+    as.matrix(subset[, c("open", "high", "low", "close", "volume")]),
+    order.by = idx
+  )
+  colnames(subset_xts) <- c("Open", "High", "Low", "Close", "Volume")
+  subset_xts
+}
 
 .bmf_locf_ohlc <- function(df) {
   required_cols <- intersect(c("open", "high", "low", "close"), names(df))

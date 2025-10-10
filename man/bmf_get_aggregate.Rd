@@ -20,6 +20,13 @@ cache directory for the ticker when `NULL`.}
 
 \item{which}{Storage location passed to `tools::R_user_dir` when directories
 are inferred.}
+
+\item{ohlc_locf}{If `TRUE`, forward-fill OHLC gaps per contract before
+returning the data.}
+
+\item{return}{Controls the output: `"agg"` (default) returns the aggregate
+data frame; `"list"` returns a split list of data frames with a `path`
+attribute referencing the aggregate file.}
 }
 \value{
 A data frame with the aggregated data or an empty data frame if the
