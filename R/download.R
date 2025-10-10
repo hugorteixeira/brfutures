@@ -878,16 +878,17 @@ bmf_get_aggregate <- function(ticker_root,
   }
   if (type == "ohlcv_locf") {
     data <- .bmf_locf_ohlc(data)
+    data <- .bmf_add_pu_columns(data, ticker_hint = ticker_root_norm)
   }
   if(type == "full"){
     data <- .bmf_locf_ohlc(data)
-    data <- .bmf_full(data)
+    data <- .bmf_add_pu_columns(data, ticker_hint = ticker_root_norm)
   }
-  data <- .bmf_add_pu_columns(data, ticker_hint = ticker_root_norm)
+  data <- .bmf_full(data)
   if (identical(return, "list")) {
-    ordered_idx <- order(data$ticker, data$date, seq_len(nrow(data)))
+    ordered_idx <- order(data$symbol, data$refdate, seq_len(nrow(data)))
     data <- data[ordered_idx, , drop = FALSE]
-    split_list <- split(data, data$ticker)
+    split_list <- split(data, data$symbol)
     attr(split_list, "path") <- aggregate_path
     return(split_list)
   }
