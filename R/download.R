@@ -852,6 +852,7 @@ bmf_get_aggregate <- function(ticker_root,
   }
   ticker_root_norm <- normalized[1L]
   which <- match.arg(which)
+  type <- match.arg(type)
   return <- match.arg(return)
   if (is.null(data_dir)) {
     data_dir <- .bmf_storage_dir(ticker_root_norm, which = which, create = FALSE)
