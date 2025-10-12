@@ -141,13 +141,39 @@
 }
 
 .bmf_report_has_no_data_message <- function(doc) {
-  nodes <- xml2::xml_find_all(doc, "//td")
-  if (!length(nodes)) {
+  texts <- xml2::xml_text(xml2::xml_find_all(doc, "//text()"))
+  .bmf_contains_no_data_message(texts)
+}
+
+.bmf_contains_no_data_message <- function(text) {
+  if (is.null(text) || !length(text)) {
     return(FALSE)
   }
-  texts <- xml2::xml_text(nodes)
-  texts <- iconv(texts, from = "UTF-8", to = "ASCII//TRANSLIT")
-  any(grepl("dados para a data consultada", texts, ignore.case = TRUE))
+  # quick check on the raw text to catch the phrase even when encodings differ
+  phrase <- "dados para a data consultada"
+  if (any(grepl(phrase, text, ignore.case = TRUE, useBytes = TRUE))) {
+    return(TRUE)
+  }
+  normalize_text <- function(x, from) {
+    suppressWarnings(iconv(x, from = from, to = "ASCII//TRANSLIT", sub = ""))
+  }
+  normalized <- normalize_text(text, "UTF-8")
+  needs_fallback <- is.na(normalized)
+  if (any(needs_fallback)) {
+    normalized[needs_fallback] <- normalize_text(text[needs_fallback], "latin1")
+  }
+  normalized <- normalized[!is.na(normalized)]
+  if (!length(normalized)) {
+    return(FALSE)
+  }
+  normalized <- toupper(normalized)
+  normalized <- gsub("[^A-Z0-9]+", " ", normalized, perl = TRUE)
+  normalized <- trimws(normalized)
+  normalized <- normalized[nzchar(normalized)]
+  if (!length(normalized)) {
+    return(FALSE)
+  }
+  any(grepl("DADOS PARA A DATA CONSULTADA", normalized, fixed = TRUE))
 }
 
 .bmf_empty_bulletin_dataframe <- function() {
@@ -351,23 +377,35 @@
   if (!length(text)) {
     return(FALSE)
   }
-  normalized <- iconv(text, from = "UTF-8", to = "ASCII//TRANSLIT")
-  normalized <- toupper(normalized)
-  any(grepl("DADOS PARA A DATA CONSULTADA", normalized, fixed = TRUE))
+  .bmf_contains_no_data_message(text)
 }
 
 .bmf_nodata_log_path <- function(ticker_root,
                                  which = c("cache", "data", "config"),
-                                 create_dir = TRUE) {
+                                 create_dir = TRUE,
+                                 dest_dir = NULL) {
+  if (!is.null(dest_dir)) {
+    dir <- path.expand(dest_dir)
+    if (create_dir && !dir.exists(dir)) {
+      dir.create(dir, recursive = TRUE, showWarnings = FALSE)
+    }
+    return(file.path(dir, "no-data-dates.txt"))
+  }
   which <- match.arg(which)
   dir <- .bmf_storage_dir(ticker_root, which = which, create = create_dir)
   file.path(dir, "no-data-dates.txt")
 }
 
 .bmf_read_no_data_dates <- function(ticker_root,
-                                    which = c("cache", "data", "config")) {
+                                    which = c("cache", "data", "config"),
+                                    dest_dir = NULL) {
   which <- match.arg(which)
-  path <- .bmf_nodata_log_path(ticker_root, which = which, create_dir = TRUE)
+  path <- .bmf_nodata_log_path(
+    ticker_root,
+    which = which,
+    create_dir = TRUE,
+    dest_dir = dest_dir
+  )
   if (!file.exists(path)) {
     return(as.Date(character()))
   }
@@ -378,10 +416,16 @@
 
 .bmf_write_no_data_dates <- function(ticker_root,
                                      which = c("cache", "data", "config"),
-                                     dates = as.Date(character())) {
+                                     dates = as.Date(character()),
+                                     dest_dir = NULL) {
   which <- match.arg(which)
   dates <- unique(sort(as.Date(dates)))
-  path <- .bmf_nodata_log_path(ticker_root, which = which, create_dir = TRUE)
+  path <- .bmf_nodata_log_path(
+    ticker_root,
+    which = which,
+    create_dir = TRUE,
+    dest_dir = dest_dir
+  )
   if (!length(dates)) {
     if (file.exists(path)) {
       unlink(path)
@@ -553,23 +597,35 @@
   if (!length(text)) {
     return(FALSE)
   }
-  normalized <- iconv(text, from = "UTF-8", to = "ASCII//TRANSLIT")
-  normalized <- toupper(normalized)
-  any(grepl("DADOS PARA A DATA CONSULTADA", normalized, fixed = TRUE))
+  .bmf_contains_no_data_message(text)
 }
 
 .bmf_nodata_log_path <- function(ticker_root,
                                  which = c("cache", "data", "config"),
-                                 create_dir = TRUE) {
+                                 create_dir = TRUE,
+                                 dest_dir = NULL) {
+  if (!is.null(dest_dir)) {
+    dir <- path.expand(dest_dir)
+    if (create_dir && !dir.exists(dir)) {
+      dir.create(dir, recursive = TRUE, showWarnings = FALSE)
+    }
+    return(file.path(dir, "no-data-dates.txt"))
+  }
   which <- match.arg(which)
   dir <- .bmf_storage_dir(ticker_root, which = which, create = create_dir)
   file.path(dir, "no-data-dates.txt")
 }
 
 .bmf_read_no_data_dates <- function(ticker_root,
-                                    which = c("cache", "data", "config")) {
+                                    which = c("cache", "data", "config"),
+                                    dest_dir = NULL) {
   which <- match.arg(which)
-  path <- .bmf_nodata_log_path(ticker_root, which = which, create_dir = TRUE)
+  path <- .bmf_nodata_log_path(
+    ticker_root,
+    which = which,
+    create_dir = TRUE,
+    dest_dir = dest_dir
+  )
   if (!file.exists(path)) {
     return(as.Date(character()))
   }
@@ -580,10 +636,16 @@
 
 .bmf_write_no_data_dates <- function(ticker_root,
                                      which = c("cache", "data", "config"),
-                                     dates = as.Date(character())) {
+                                     dates = as.Date(character()),
+                                     dest_dir = NULL) {
   which <- match.arg(which)
   dates <- unique(sort(as.Date(dates)))
-  path <- .bmf_nodata_log_path(ticker_root, which = which, create_dir = TRUE)
+  path <- .bmf_nodata_log_path(
+    ticker_root,
+    which = which,
+    create_dir = TRUE,
+    dest_dir = dest_dir
+  )
   if (!length(dates)) {
     if (file.exists(path)) {
       unlink(path)

@@ -7,7 +7,8 @@
     tryCatch({
       # Load built-in calendars (includes ANBIMA holidays)
       bizdays::load_builtin_calendars()
-
+      # Pre-create the package calendar so it is ready for use
+      invisible(.bmf_get_calendar())
     }, error = function(e) {
       # Use warning() instead of packageStartupMessage() in .onLoad
       warning(
@@ -31,9 +32,30 @@
 
 # Optional: informational messages go here
 .onAttach <- function(libname, pkgname) {
-  packageStartupMessage(
-    "brfutures ",
-    utils::packageVersion("brfutures"),
-    " loaded successfully."
+  version <- tryCatch(utils::packageVersion(pkgname), error = function(...) "unknown")
+
+  quote_lines <- c(
+    "'Don't be a hero. Don't have an ego. Always question yourself and your ability.",
+    "Don't ever feel that you are very good. The second you do, you are dead.'",
+    "Paul Tudor Jones"
   )
+
+  width <- getOption("width", default = 80)
+
+  aligned_quote <- sapply(quote_lines, function(line) {
+    spaces <- max(0, width - nchar(line))
+    paste0(strrep(" ", spaces), line)
+  })
+
+  lines <- c(
+    sprintf("Loading brfutures %s", version),
+    "",
+    aligned_quote,
+    "",
+    "Author: Hugo Rzepian Teixeira",
+    "GitHub: https://github.com/hugorteixeira/brfutures",
+    "\nTip: use bmf_download_history() to refresh your cache."
+  )
+
+  packageStartupMessage(paste(lines, collapse = "\n"))
 }

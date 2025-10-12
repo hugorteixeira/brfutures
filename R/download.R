@@ -336,7 +336,7 @@ parse_bmf_report <- function(path,
       as.character(value)
     }
   }, character(1), USE.NAMES = FALSE)
-  if (any(grepl("dados para a data consultada", all_cells_chr, ignore.case = TRUE))) {
+  if (.bmf_contains_no_data_message(all_cells_chr)) {
     resolved_date <- report_date
     if (is.null(resolved_date) || is.na(resolved_date)) {
       resolved_date <- .bmf_extract_date_from_filename(path)
@@ -351,6 +351,7 @@ parse_bmf_report <- function(path,
     attr(empty, "ticker_root") <- ticker_root
     attr(empty, "commodity") <- ticker_root
     attr(empty, "source") <- path
+    attr(empty, "reason") <- "no_data"
     message("Report ", basename(path), " contains no data. Returning empty result.")
     return(empty)
   }
@@ -445,8 +446,17 @@ bmf_collect_contracts <- function(ticker_root,
   })
   parsed <- Filter(Negate(is.null), parsed)
   if (length(reason_dates)) {
-    existing_skip <- .bmf_read_no_data_dates(ticker_root_norm, which)
-    .bmf_write_no_data_dates(ticker_root_norm, which, unique(c(existing_skip, reason_dates)))
+    existing_skip <- .bmf_read_no_data_dates(
+      ticker_root_norm,
+      which,
+      dest_dir = data_dir
+    )
+    .bmf_write_no_data_dates(
+      ticker_root_norm,
+      which,
+      unique(c(existing_skip, reason_dates)),
+      dest_dir = data_dir
+    )
   }
   if (!length(parsed)) {
     return(.bmf_empty_bulletin_dataframe())
@@ -634,7 +644,25 @@ bmf_download_history <- function(ticker_root,
   if (overwrite) {
     skip_existing <- FALSE
   }
-  no_data_dates <- .bmf_read_no_data_dates(ticker_root_norm, which)
+  no_data_dates <- .bmf_read_no_data_dates(
+    ticker_root_norm,
+    which,
+    dest_dir = dest_dir
+  )
+  last_written_no_data_dates <- no_data_dates
+  flush_no_data_dates <- function(force = FALSE) {
+    if (!force && identical(no_data_dates, last_written_no_data_dates)) {
+      return(invisible(FALSE))
+    }
+    .bmf_write_no_data_dates(
+      ticker_root_norm,
+      which,
+      no_data_dates,
+      dest_dir = dest_dir
+    )
+    last_written_no_data_dates <<- no_data_dates
+    invisible(TRUE)
+  }
   # clean pre-existing files with no data message
   existing_files <- list.files(
     dest_dir,
@@ -653,44 +681,121 @@ bmf_download_history <- function(ticker_root,
       }
     }
     if (length(cleaned_dates)) {
+      previous_len <- length(no_data_dates)
       no_data_dates <- unique(c(no_data_dates, cleaned_dates))
+      if (length(no_data_dates) > previous_len) {
+        flush_no_data_dates()
+      }
+    }
+  }
+  existing_files <- list.files(
+    dest_dir,
+    pattern = paste0("^", ticker_root_norm, "_.*\\.(html?|xls[x]?)$"),
+    full.names = TRUE
+  )
+  existing_date_values <- as.Date(character())
+  existing_path_map <- list()
+  if (length(existing_files)) {
+    file_dates <- vapply(
+      existing_files,
+      .bmf_extract_date_from_filename,
+      as.Date(NA)
+    )
+    valid_idx <- !is.na(file_dates)
+    if (any(valid_idx)) {
+      existing_date_values <- unique(file_dates[valid_idx])
+      normalized_paths <- vapply(
+        existing_files[valid_idx],
+        function(path) {
+          if (file.exists(path)) {
+            normalizePath(path, winslash = "/", mustWork = FALSE)
+          } else {
+            path
+          }
+        },
+        character(1),
+        USE.NAMES = FALSE
+      )
+      existing_path_map <- split(normalized_paths, as.character(file_dates[valid_idx]))
     }
   }
   dates <- seq(from = start_date, to = end_date, by = "day")
-  if (verbose) {
-    message("Downloading ", length(dates), " day(s) for ", ticker_root_norm)
+  dates_to_download <- dates
+  skip_results <- list()
+  existing_skip_dates <- as.Date(character())
+  cached_no_data_dates <- as.Date(character())
+  if (isTRUE(skip_existing)) {
+    if (length(existing_date_values)) {
+      existing_skip_dates <- sort(intersect(dates_to_download, existing_date_values))
+      if (length(existing_skip_dates)) {
+        existing_skip_paths <- vapply(
+          existing_skip_dates,
+          function(day) {
+            key <- as.character(day)
+            paths <- existing_path_map[[key]]
+            if (length(paths)) {
+              paths[[1L]]
+            } else {
+              NA_character_
+            }
+          },
+          character(1),
+          USE.NAMES = FALSE
+        )
+        skip_results[[length(skip_results) + 1L]] <- data.frame(
+          date = existing_skip_dates,
+          status = "skipped",
+          path = existing_skip_paths,
+          message = NA_character_,
+          stringsAsFactors = FALSE
+        )
+        dates_to_download <- setdiff(dates_to_download, existing_skip_dates)
+      }
+    }
+    if (length(no_data_dates)) {
+      cached_no_data_dates <- sort(intersect(dates_to_download, no_data_dates))
+      if (length(cached_no_data_dates)) {
+        skip_results[[length(skip_results) + 1L]] <- data.frame(
+          date = cached_no_data_dates,
+          status = "no_data_cached",
+          path = NA_character_,
+          message = "cached no-data",
+          stringsAsFactors = FALSE
+        )
+        dates_to_download <- setdiff(dates_to_download, cached_no_data_dates)
+      }
+    }
   }
-  results <- lapply(dates, function(current_date) {
-    base_name <- sprintf("%s_%s", ticker_root_norm, format(current_date, "%Y-%m-%d"))
+  dates_to_download <- sort(dates_to_download)
+  if (verbose) {
+    info_parts <- character()
+    info_parts <- c(info_parts, sprintf("%d to download", length(dates_to_download)))
+    if (length(existing_skip_dates)) {
+      info_parts <- c(info_parts, sprintf("%d existing skipped", length(existing_skip_dates)))
+    }
+    if (length(cached_no_data_dates)) {
+      info_parts <- c(info_parts, sprintf("%d cached no-data", length(cached_no_data_dates)))
+    }
+    message(
+      "Processing ",
+      length(dates),
+      " day(s) for ",
+      ticker_root_norm,
+      " (",
+      paste(info_parts, collapse = ", "),
+      ")"
+    )
+  }
+  download_results <- lapply(dates_to_download, function(current_date) {
+    if (!inherits(current_date, "Date")) {
+      current_date <- as.Date(current_date)
+    }
+    current_date_str <- strftime(current_date, "%Y-%m-%d")
+    base_name <- sprintf("%s_%s", ticker_root_norm, current_date_str)
     existing_paths <- file.path(dest_dir, paste0(base_name, c(".xls", ".html")))
     existing_paths <- existing_paths[file.exists(existing_paths)]
-    if (skip_existing && length(existing_paths)) {
-      existing_path <- normalizePath(existing_paths[1L], winslash = "/", mustWork = FALSE)
-      if (verbose) {
-        message("[", format(current_date), "] skipping existing file ", existing_path)
-      }
-      return(data.frame(
-        date = current_date,
-        status = "skipped",
-        path = existing_path,
-        message = NA_character_,
-        stringsAsFactors = FALSE
-      ))
-    }
-    if (skip_existing && current_date %in% no_data_dates) {
-      if (verbose) {
-        message("[", format(current_date), "] skipping cached no-data day")
-      }
-      return(data.frame(
-        date = current_date,
-        status = "no_data_cached",
-        path = NA_character_,
-        message = "cached no-data",
-        stringsAsFactors = FALSE
-      ))
-    }
     if (verbose) {
-      message("[", format(current_date), "] downloading...")
+      message("[", current_date_str, "] downloading...")
     }
     outcome <- tryCatch(
       {
@@ -725,9 +830,13 @@ bmf_download_history <- function(ticker_root,
           if (file.exists(saved_path)) {
             unlink(saved_path)
           }
+          previous_len <- length(no_data_dates)
           no_data_dates <<- unique(c(no_data_dates, current_date))
+          if (length(no_data_dates) > previous_len) {
+            flush_no_data_dates()
+          }
           if (verbose) {
-            message("[", format(current_date), "] ", reason_flag, " (removed file)")
+            message("[", current_date_str, "] ", reason_flag, " (removed file)")
           }
           return(data.frame(
             date = current_date,
@@ -739,7 +848,7 @@ bmf_download_history <- function(ticker_root,
         }
         saved_path <- normalizePath(saved_path, winslash = "/", mustWork = TRUE)
         if (verbose) {
-          message("[", format(current_date), "] saved ", saved_path)
+          message("[", current_date_str, "] saved ", saved_path)
         }
         data.frame(
           date = current_date,
@@ -751,7 +860,7 @@ bmf_download_history <- function(ticker_root,
       },
       error = function(err) {
         if (verbose) {
-          message("[", format(current_date), "] error: ", conditionMessage(err))
+          message("[", current_date_str, "] error: ", conditionMessage(err))
         }
         data.frame(
           date = current_date,
@@ -764,9 +873,24 @@ bmf_download_history <- function(ticker_root,
     )
     outcome
   })
-  summary <- do.call(rbind, results)
-  rownames(summary) <- NULL
-  .bmf_write_no_data_dates(ticker_root_norm, which, no_data_dates)
+  all_results <- c(skip_results, download_results)
+  summary <- if (length(all_results)) {
+    do.call(rbind, all_results)
+  } else {
+    data.frame(
+      date = as.Date(character()),
+      status = character(),
+      path = character(),
+      message = character(),
+      stringsAsFactors = FALSE
+    )
+  }
+  if (nrow(summary)) {
+    ordering <- order(match(summary$date, dates), seq_len(nrow(summary)))
+    summary <- summary[ordering, , drop = FALSE]
+    rownames(summary) <- NULL
+  }
+  flush_no_data_dates(force = TRUE)
   invisible(summary)
 }
 
