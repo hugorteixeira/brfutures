@@ -452,6 +452,7 @@
 
 .bmf_legacy_root_aliases <- function() {
   list(
+    CCM = c("CN2"),
     BGI = c("BOI")
   )
 }

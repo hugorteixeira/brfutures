@@ -48,6 +48,6 @@ Build xts time series for a ticker root
 }
 \details{
 Historical aliases for `ticker_root` are resolved transparently
-  before the series are built, so renames such as `"ICN"` → `"CCM"` are
+  before the series are built, so renames such as `"CN2"` → `"CCM"` are
   stitched together into a single output.
 }

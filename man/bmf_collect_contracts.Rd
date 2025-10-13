@@ -16,7 +16,7 @@ bmf_collect_contracts(
 
 \item{data_dir}{Directory containing saved bulletin files for the ticker. When
 `NULL`, the package cache obtained via [tools::R_user_dir()] is used. If the
-root has known historical aliases (e.g. `"CCM"` used to trade as `"ICN"`),
+root has known historical aliases (e.g. `"CCM"` used to trade as `"CN2"`),
 those sibling cache folders are scanned automatically.}
 
 \item{drop_empty}{If `TRUE`, drop reports with zero rows.}

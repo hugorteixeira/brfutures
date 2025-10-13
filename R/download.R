@@ -396,7 +396,7 @@ parse_bmf_report <- function(path,
 #' @param ticker_root Commodity symbol root.
 #' @param data_dir Directory containing saved bulletin files for the ticker. When
 #'   `NULL`, the package cache obtained via [tools::R_user_dir()] is used. If the
-#'   root has known historical aliases (e.g. `"CCM"` used to trade as `"ICN"`),
+#'   root has known historical aliases (e.g. `"CCM"` used to trade as `"CN2"`),
 #'   those sibling cache folders are scanned automatically.
 #' @param drop_empty If `TRUE`, drop reports with zero rows.
 #' @param which Storage location passed to `tools::R_user_dir` when `data_dir`
@@ -586,7 +586,7 @@ bmf_collect_contracts <- function(ticker_root,
 #'   per-contract xts objects; `"agg"` returns the aggregated data frame.
 #'
 #' @details Historical aliases for `ticker_root` are resolved transparently
-#'   before the series are built, so renames such as `"ICN"` → `"CCM"` are
+#'   before the series are built, so renames such as `"CN2"` → `"CCM"` are
 #'   stitched together into a single output.
 #'
 #' @return A named list of xts objects; the list has an attribute `files` with
