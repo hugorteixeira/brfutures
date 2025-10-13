@@ -450,6 +450,211 @@
 .bmf_month_map <- c(F = 1, G = 2, H = 3, J = 4, K = 5, M = 6,
                     N = 7, Q = 8, U = 9, V = 10, X = 11, Z = 12)
 
+.bmf_legacy_root_aliases <- function() {
+  list(
+    BGI = c("BOI")
+  )
+}
+
+.bmf_alias_roots <- function(ticker_root) {
+  if (is.null(ticker_root) || !length(ticker_root)) {
+    return(character())
+  }
+  root_input <- toupper(ticker_root[1L])
+  canonical <- .bmf_alias_canonical(root_input)[1L]
+  if (is.na(canonical) || !nzchar(canonical)) {
+    canonical <- root_input
+  }
+  aliases <- .bmf_legacy_root_aliases()[[canonical]]
+  if (is.null(aliases)) {
+    character()
+  } else {
+    out <- toupper(aliases)
+    out <- unique(out[out != canonical])
+    out
+  }
+}
+
+.bmf_alias_canonical <- function(root_vec) {
+  if (is.null(root_vec) || !length(root_vec)) {
+    return(root_vec)
+  }
+  vals <- toupper(as.character(root_vec))
+  alias_map <- .bmf_legacy_root_aliases()
+  alias_pairs <- unlist(alias_map, use.names = TRUE)
+  if (length(alias_pairs)) {
+    reverse_map <- stats::setNames(names(alias_pairs), toupper(alias_pairs))
+    idx <- vals %in% names(reverse_map)
+    if (any(idx)) {
+      vals[idx] <- reverse_map[vals[idx]]
+    }
+  }
+  vals
+}
+
+.bmf_normalize_symbol_prefix <- function(symbols) {
+  if (is.null(symbols) || !length(symbols)) {
+    return(symbols)
+  }
+  vals <- as.character(symbols)
+  idx <- !is.na(vals) & nzchar(vals)
+  if (!any(idx)) {
+    return(symbols)
+  }
+  prefix <- substr(vals[idx], 1L, 3L)
+  prefix_new <- .bmf_alias_canonical(prefix)
+  change_idx <- prefix_new != prefix
+  if (any(change_idx, na.rm = TRUE)) {
+    tmp <- vals[idx]
+    substr(tmp[change_idx & !is.na(prefix_new)], 1L, 3L) <- prefix_new[change_idx & !is.na(prefix_new)]
+    vals[idx] <- tmp
+  }
+  vals
+}
+
+.bmf_portuguese_month_map <- c(
+  JAN = "F",
+  FEV = "G",
+  MAR = "H",
+  ABR = "J",
+  MAI = "K",
+  JUN = "M",
+  JUL = "N",
+  AGO = "Q",
+  SET = "U",
+  OUT = "V",
+  NOV = "X",
+  DEZ = "Z"
+)
+
+.bmf_normalize_pt_year <- function(year_fragment, maturity_val = as.Date(NA)) {
+  if (!is.na(maturity_val)) {
+    return(format(as.Date(maturity_val), "%y"))
+  }
+  digits <- gsub("[^0-9]", "", year_fragment)
+  if (!nzchar(digits)) {
+    return(year_fragment)
+  }
+  if (nchar(digits) == 1L) {
+    num <- suppressWarnings(as.integer(digits))
+    if (!is.na(num)) {
+      return(sprintf("%02d", num %% 100))
+    }
+    return(digits)
+  }
+  substr(digits, nchar(digits) - 1L, nchar(digits))
+}
+
+.bmf_normalize_older_symbol <- function(symbols, maturities = NULL) {
+  if (is.null(symbols) || !length(symbols)) {
+    return(symbols)
+  }
+  if (is.null(maturities)) {
+    maturities <- rep(as.Date(NA), length(symbols))
+  } else {
+    maturities <- as.Date(maturities)
+    if (length(maturities) != length(symbols)) {
+      maturities <- rep(maturities, length.out = length(symbols))
+    }
+  }
+  vals_chr <- as.character(symbols)
+  is_na <- is.na(vals_chr) | vals_chr == ""
+  vals_chr[is_na] <- ""
+  upper_vals <- toupper(vals_chr)
+  pattern <- "^([A-Z]{1,4})(JAN|FEV|MAR|ABR|MAI|JUN|JUL|AGO|SET|OUT|NOV|DEZ)([0-9]{1,2})$"
+  matches <- regexec(pattern, upper_vals, perl = TRUE)
+  captures <- regmatches(upper_vals, matches)
+  res <- upper_vals
+  idx <- which(lengths(captures) == 4L)
+  if (length(idx)) {
+    for (i in idx) {
+      prefix <- .bmf_alias_canonical(captures[[i]][2L])
+      month_pt <- captures[[i]][3L]
+      year_part <- captures[[i]][4L]
+      month_code <- .bmf_portuguese_month_map[[month_pt]]
+      if (is.null(month_code)) {
+        next
+      }
+      year_digits <- .bmf_normalize_pt_year(year_part, maturities[i])
+      res[i] <- paste0(prefix, month_code, year_digits)
+    }
+  }
+  res[is_na] <- NA_character_
+  res
+}
+
+.bmf_normalize_older_code <- function(codes, maturities = NULL) {
+  if (is.null(codes) || !length(codes)) {
+    return(codes)
+  }
+  if (is.null(maturities)) {
+    maturities <- rep(as.Date(NA), length(codes))
+  } else {
+    maturities <- as.Date(maturities)
+    if (length(maturities) != length(codes)) {
+      maturities <- rep(maturities, length.out = length(codes))
+    }
+  }
+  vals_chr <- as.character(codes)
+  is_na <- is.na(vals_chr) | vals_chr == ""
+  vals_chr[is_na] <- ""
+  upper_vals <- toupper(vals_chr)
+  pattern <- "^(JAN|FEV|MAR|ABR|MAI|JUN|JUL|AGO|SET|OUT|NOV|DEZ)([0-9]{1,2})$"
+  matches <- regexec(pattern, upper_vals, perl = TRUE)
+  captures <- regmatches(upper_vals, matches)
+  res <- upper_vals
+  idx <- which(lengths(captures) == 3L)
+  if (length(idx)) {
+    for (i in idx) {
+      month_pt <- captures[[i]][2L]
+      year_part <- captures[[i]][3L]
+      month_code <- .bmf_portuguese_month_map[[month_pt]]
+      if (is.null(month_code)) {
+        next
+      }
+      year_digits <- .bmf_normalize_pt_year(year_part, maturities[i])
+      res[i] <- paste0(month_code, year_digits)
+    }
+  }
+  res[is_na] <- NA_character_
+  res
+}
+
+.bmf_normalize_older_contracts <- function(df, maturity_col = "estimated_maturity") {
+  if (!is.data.frame(df) || !nrow(df)) {
+    return(df)
+  }
+  maturity_vec <- if (maturity_col %in% names(df)) {
+    as.Date(df[[maturity_col]])
+  } else {
+    rep(as.Date(NA), nrow(df))
+  }
+  char_cols <- intersect(c("symbol", "ticker", "contract_code", "maturity_code"), names(df))
+  for (nm in char_cols) {
+    if (!is.character(df[[nm]])) {
+      df[[nm]] <- as.character(df[[nm]])
+    }
+  }
+  if ("symbol" %in% names(df)) {
+    df$symbol <- .bmf_normalize_older_symbol(df$symbol, maturities = maturity_vec)
+    df$symbol <- .bmf_normalize_symbol_prefix(df$symbol)
+  }
+  if ("ticker" %in% names(df)) {
+    df$ticker <- .bmf_normalize_older_symbol(df$ticker, maturities = maturity_vec)
+    df$ticker <- .bmf_normalize_symbol_prefix(df$ticker)
+  }
+  if ("contract_code" %in% names(df)) {
+    df$contract_code <- .bmf_normalize_older_code(df$contract_code, maturities = maturity_vec)
+  }
+  if ("maturity_code" %in% names(df)) {
+    df$maturity_code <- .bmf_normalize_older_code(df$maturity_code, maturities = maturity_vec)
+  }
+  if ("commodity" %in% names(df)) {
+    df$commodity <- .bmf_alias_canonical(df$commodity)
+  }
+  df
+}
+
 .bmf_parse_contract_ticker <- function(ticker) {
   pattern <- "^([A-Z][A-Z0-9]{1,3})([FGHJKMNQUVXZ])([0-9]{1,2})$"
   match <- regexec(pattern, ticker, perl = TRUE)
@@ -491,6 +696,12 @@
 
 .bmf_estimate_maturity <- function(ticker, calendar_name = .bmf_get_calendar()) {
   comps <- .bmf_parse_contract_ticker(ticker)
+  if (is.null(comps)) {
+    normalized <- .bmf_normalize_older_symbol(ticker)
+    if (!is.null(normalized) && length(normalized) && !is.na(normalized[1L])) {
+      comps <- .bmf_parse_contract_ticker(normalized[1L])
+    }
+  }
   if (is.null(comps)) {
     return(as.Date(NA))
   }

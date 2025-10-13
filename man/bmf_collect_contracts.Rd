@@ -14,7 +14,10 @@ bmf_collect_contracts(
 \arguments{
 \item{ticker_root}{Commodity symbol root.}
 
-\item{data_dir}{Directory containing saved bulletin files for the ticker.}
+\item{data_dir}{Directory containing saved bulletin files for the ticker. When
+`NULL`, the package cache obtained via [tools::R_user_dir()] is used. If the
+root has known historical aliases (e.g. `"CCM"` used to trade as `"ICN"`),
+those sibling cache folders are scanned automatically.}
 
 \item{drop_empty}{If `TRUE`, drop reports with zero rows.}
 
@@ -26,4 +29,9 @@ A data frame combining all parsed bulletins.
 }
 \description{
 Collect parsed bulletin data for a ticker root
+}
+\details{
+Legacy folder names that correspond to aliases of `ticker_root`
+  (see `.bmf_alias_roots()`) are merged into the result with their
+  `ticker_root` column normalised to the modern symbol.
 }

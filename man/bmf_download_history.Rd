@@ -45,3 +45,8 @@ Invisibly returns a data frame summarising download results.
 \description{
 Download a range of bulletins for a ticker root
 }
+\details{
+Historical aliases returned by `.bmf_alias_roots()` are retried
+  automatically when a report is missing or empty, and any successfully
+  fetched bulletin is saved under the modern `ticker_root` naming.
+}

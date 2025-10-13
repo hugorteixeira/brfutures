@@ -5,9 +5,10 @@
 # roxygen namespace tags. Modify with care!
 ## usethis namespace: start
 #' @importFrom lubridate force_tz interval
-#' @importFrom stats runif
+#' @importFrom stats runif na.omit ave
 #' @importFrom xts xts is.xts xtsAttributes
 #' @importFrom zoo index
+#' @importFrom rSenhorMercadoAPI sm_get_data
 #' @importFrom bizdays create.calendar holidays bizdays is.bizday adjust.next
 ## usethis namespace: end
 NULL

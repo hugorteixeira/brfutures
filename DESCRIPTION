@@ -20,5 +20,6 @@ Imports:
     readxl,
     bizdays,
     lubridate,
-    zoo
+    zoo,
+    rSenhorMercadoAPI
 RoxygenNote: 7.3.2

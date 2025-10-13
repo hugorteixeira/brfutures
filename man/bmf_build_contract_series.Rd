@@ -46,3 +46,8 @@ A named list of xts objects; the list has an attribute `files` with
 \description{
 Build xts time series for a ticker root
 }
+\details{
+Historical aliases for `ticker_root` are resolved transparently
+  before the series are built, so renames such as `"ICN"` → `"CCM"` are
+  stitched together into a single output.
+}

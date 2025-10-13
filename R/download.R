@@ -394,10 +394,17 @@ parse_bmf_report <- function(path,
 #' Collect parsed bulletin data for a ticker root
 #'
 #' @param ticker_root Commodity symbol root.
-#' @param data_dir Directory containing saved bulletin files for the ticker.
+#' @param data_dir Directory containing saved bulletin files for the ticker. When
+#'   `NULL`, the package cache obtained via [tools::R_user_dir()] is used. If the
+#'   root has known historical aliases (e.g. `"CCM"` used to trade as `"ICN"`),
+#'   those sibling cache folders are scanned automatically.
 #' @param drop_empty If `TRUE`, drop reports with zero rows.
 #' @param which Storage location passed to `tools::R_user_dir` when `data_dir`
 #'   is `NULL`.
+#'
+#' @details Legacy folder names that correspond to aliases of `ticker_root`
+#'   (see `.bmf_alias_roots()`) are merged into the result with their
+#'   `ticker_root` column normalised to the modern symbol.
 #'
 #' @return A data frame combining all parsed bulletins.
 #' @export
@@ -410,63 +417,155 @@ bmf_collect_contracts <- function(ticker_root,
   if (!length(normalized)) {
     stop("ticker_root cannot be missing or empty.", call. = FALSE)
   }
-  ticker_root_norm <- normalized[1L]
+  ticker_root_norm <- .bmf_alias_canonical(normalized[1L])[1L]
   which <- match.arg(which)
-  if (is.null(data_dir)) {
-    data_dir <- .bmf_storage_dir(ticker_root_norm, which = which)
+  alias_roots <- .bmf_alias_roots(ticker_root_norm)
+
+  resolve_dir <- function(root_sym, base_dir = NULL) {
+    if (!is.null(base_dir) && dir.exists(base_dir) && identical(root_sym, ticker_root_norm)) {
+      return(base_dir)
+    }
+    default_dir <- .bmf_storage_dir(root_sym, which = which)
+    if (dir.exists(default_dir)) {
+      return(default_dir)
+    }
+    if (!is.null(base_dir)) {
+      sibling <- file.path(dirname(base_dir), root_sym)
+      if (dir.exists(sibling)) {
+        return(sibling)
+      }
+    }
+    NULL
   }
-  if (!dir.exists(data_dir)) {
-    stop("Directory '", data_dir, "' does not exist.", call. = FALSE)
+
+  base_dir <- if (is.null(data_dir)) {
+    .bmf_storage_dir(ticker_root_norm, which = which)
+  } else {
+    data_dir
   }
-  files <- list.files(
-    data_dir,
-    pattern = paste0("^", ticker_root_norm, "_.*\\.(html?|xls[x]?)$"),
-    full.names = TRUE
-  )
-  files <- sort(files)
-  if (!length(files)) {
-    return(.bmf_empty_bulletin_dataframe())
+  candidate_dirs <- list()
+  base_resolved <- resolve_dir(ticker_root_norm, base_dir)
+  if (!is.null(base_resolved)) {
+    candidate_dirs[[ticker_root_norm]] <- base_resolved
   }
-  reason_dates <- as.Date(character())
-  parsed <- lapply(files, function(path) {
-    inferred_date <- .bmf_extract_date_from_filename(path)
-    df <- parse_bmf_report(path, ticker_root = ticker_root_norm, report_date = inferred_date)
-    if (drop_empty && !nrow(df)) {
-      reason <- attr(df, "reason")
-      if (!is.null(reason) && reason %in% c("no_data", "missing_tables", "incomplete_tables")) {
-        if (file.exists(path)) {
-          unlink(path)
+  if (length(alias_roots)) {
+    for (alias_sym in alias_roots) {
+      alias_dir <- resolve_dir(alias_sym, base_dir)
+      if (!is.null(alias_dir)) {
+        candidate_dirs[[alias_sym]] <- alias_dir
+      }
+    }
+  }
+  if (!length(candidate_dirs)) {
+    stop(
+      "No directories found for ticker root ",
+      ticker_root_norm,
+      "; checked ",
+      paste(c(ticker_root_norm, alias_roots), collapse = ", "),
+      ".",
+      call. = FALSE
+    )
+  }
+
+  parsed <- list()
+  reason_map <- list()
+  source_files <- character()
+
+  parse_directory <- function(root_sym, dir_path) {
+    pattern <- paste0("^", root_sym, "_.*\\.(html?|xls[x]?)$")
+    files <- list.files(dir_path, pattern = pattern, full.names = TRUE)
+    files <- sort(files)
+    if (!length(files)) {
+      return(list(data = list(), reasons = as.Date(character()), files = character()))
+    }
+    reason_dates_local <- as.Date(character())
+    parsed_local <- lapply(files, function(path) {
+      inferred_date <- .bmf_extract_date_from_filename(path)
+      df <- parse_bmf_report(path, ticker_root = root_sym, report_date = inferred_date)
+      if (drop_empty && !nrow(df)) {
+        reason <- attr(df, "reason")
+        if (!is.null(reason) && reason %in% c("no_data", "missing_tables", "incomplete_tables")) {
+          if (file.exists(path)) {
+            unlink(path)
+          }
+          report_date <- attr(df, "report_date")
+          if (!is.null(report_date)) {
+            reason_dates_local <<- unique(c(reason_dates_local, report_date))
+          }
+          return(NULL)
         }
-        reason_dates <<- unique(c(reason_dates, attr(df, "report_date")))
         return(NULL)
       }
-      return(NULL)
-    }
-    df
-  })
-  parsed <- Filter(Negate(is.null), parsed)
-  if (length(reason_dates)) {
-    existing_skip <- .bmf_read_no_data_dates(
-      ticker_root_norm,
-      which,
-      dest_dir = data_dir
-    )
-    .bmf_write_no_data_dates(
-      ticker_root_norm,
-      which,
-      unique(c(existing_skip, reason_dates)),
-      dest_dir = data_dir
-    )
+      if (nrow(df)) {
+        if ("ticker_root" %in% names(df)) {
+          df$ticker_root <- root_sym
+        } else {
+          df$ticker_root <- root_sym
+        }
+      }
+      df
+    })
+    parsed_local <- Filter(Negate(is.null), parsed_local)
+    list(data = parsed_local, reasons = reason_dates_local, files = files)
   }
+
+  for (root_sym in names(candidate_dirs)) {
+    dir_path <- candidate_dirs[[root_sym]]
+    res <- parse_directory(root_sym, dir_path)
+    if (length(res$data)) {
+      parsed <- c(parsed, res$data)
+    }
+    if (length(res$reasons)) {
+      reason_map[[root_sym]] <- res$reasons
+    }
+    if (length(res$files)) {
+      source_files <- unique(c(source_files, res$files))
+    }
+  }
+
+  if (length(reason_map)) {
+    for (root_sym in names(reason_map)) {
+      reasons <- reason_map[[root_sym]]
+      dir_path <- candidate_dirs[[root_sym]]
+      existing_skip <- .bmf_read_no_data_dates(
+        root_sym,
+        which,
+        dest_dir = dir_path
+      )
+      .bmf_write_no_data_dates(
+        root_sym,
+        which,
+        unique(c(existing_skip, reasons)),
+        dest_dir = dir_path
+      )
+    }
+  }
+
   if (!length(parsed)) {
     return(.bmf_empty_bulletin_dataframe())
   }
+
   combined <- do.call(rbind, parsed)
+  combined$ticker_root <- toupper(combined$ticker_root)
+  combined$ticker_root <- .bmf_alias_canonical(combined$ticker_root)
+  alias_upper <- alias_roots
+  if (length(alias_upper)) {
+    idx_alias <- combined$ticker_root %in% alias_upper
+    if (any(idx_alias)) {
+      combined$ticker_root[idx_alias] <- ticker_root_norm
+      if ("commodity" %in% names(combined)) {
+        combined$commodity[idx_alias] <- ticker_root_norm
+      }
+    }
+  }
+  if ("commodity" %in% names(combined)) {
+    combined$commodity <- .bmf_alias_canonical(combined$commodity)
+  }
   combined <- combined[order(combined$contract_code, combined$date), , drop = FALSE]
   combined$ticker <- paste0(combined$ticker_root, combined$contract_code)
   combined <- combined[, c("date", "ticker_root", "commodity", "contract_code", "ticker", setdiff(names(combined), c("date", "ticker_root", "commodity", "contract_code", "ticker"))), drop = FALSE]
   rownames(combined) <- NULL
-  attr(combined, "source_files") <- files
+  attr(combined, "source_files") <- source_files
   combined
 }
 
@@ -486,6 +585,10 @@ bmf_collect_contracts <- function(ticker_root,
 #' @param return Controls what is returned. `"list"` (default) returns the
 #'   per-contract xts objects; `"agg"` returns the aggregated data frame.
 #'
+#' @details Historical aliases for `ticker_root` are resolved transparently
+#'   before the series are built, so renames such as `"ICN"` → `"CCM"` are
+#'   stitched together into a single output.
+#'
 #' @return A named list of xts objects; the list has an attribute `files` with
 #'   the paths of the saved series (if `save_series = TRUE`).
 #' @export
@@ -503,7 +606,7 @@ bmf_build_contract_series <- function(ticker_root,
   if (!length(normalized)) {
     stop("ticker_root cannot be missing or empty.", call. = FALSE)
   }
-  ticker_root_norm <- normalized[1L]
+  ticker_root_norm <- .bmf_alias_canonical(normalized[1L])[1L]
   which <- match.arg(which)
   return <- match.arg(return)
   if (is.null(data_dir)) {
@@ -613,6 +716,10 @@ bmf_build_contract_series <- function(ticker_root,
 #'   is `NULL`.
 #' @param verbose If `TRUE`, emit progress messages and download stats.
 #'
+#' @details Historical aliases returned by `.bmf_alias_roots()` are retried
+#'   automatically when a report is missing or empty, and any successfully
+#'   fetched bulletin is saved under the modern `ticker_root` naming.
+#'
 #' @return Invisibly returns a data frame summarising download results.
 #' @export
 bmf_download_history <- function(ticker_root,
@@ -630,7 +737,7 @@ bmf_download_history <- function(ticker_root,
   if (!length(normalized)) {
     stop("ticker_root cannot be missing or empty.", call. = FALSE)
   }
-  ticker_root_norm <- normalized[1L]
+  ticker_root_norm <- .bmf_alias_canonical(normalized[1L])[1L]
   which <- match.arg(which)
   if (is.null(dest_dir)) {
     dest_dir <- .bmf_storage_dir(ticker_root_norm, which = which)
@@ -791,87 +898,161 @@ bmf_download_history <- function(ticker_root,
       current_date <- as.Date(current_date)
     }
     current_date_str <- strftime(current_date, "%Y-%m-%d")
-    base_name <- sprintf("%s_%s", ticker_root_norm, current_date_str)
-    existing_paths <- file.path(dest_dir, paste0(base_name, c(".xls", ".html")))
-    existing_paths <- existing_paths[file.exists(existing_paths)]
-    if (verbose) {
-      message("[", current_date_str, "] downloading...")
-    }
-    outcome <- tryCatch(
-      {
-        saved_path <- download_bmf_report(
+    base_name_main <- sprintf("%s_%s", ticker_root_norm, current_date_str)
+    candidate_roots <- unique(c(ticker_root_norm, .bmf_alias_roots(ticker_root_norm)))
+    attempt_messages <- character()
+    final_reason <- NULL
+    saved_path_final <- NA_character_
+    alias_used <- NA_character_
+    success <- FALSE
+    for (root_sym in candidate_roots) {
+      if (verbose) {
+        if (identical(root_sym, ticker_root_norm)) {
+          message("[", current_date_str, "] downloading...")
+        } else {
+          message("[", current_date_str, "] downloading via alias ", root_sym, "...")
+        }
+      }
+      attempt_path <- tryCatch(
+        download_bmf_report(
           date = current_date,
-          ticker_root = ticker_root_norm,
+          ticker_root = root_sym,
           dest_dir = dest_dir,
           overwrite = overwrite,
           quiet = quiet,
           format = format,
           which = which
+        ),
+        error = function(err) err
+      )
+      if (inherits(attempt_path, "error")) {
+        final_reason <- conditionMessage(attempt_path)
+        attempt_messages <- c(
+          attempt_messages,
+          sprintf("%s: %s", root_sym, final_reason)
         )
-        reason_flag <- NULL
-        parsed_meta <- try(
-          suppressMessages(
-            parse_bmf_report(
-              saved_path,
-              ticker_root = ticker_root_norm,
-              report_date = current_date,
-              format = NULL
+        next
+      }
+      saved_path <- attempt_path
+      ext <- tools::file_ext(saved_path)
+      if (!nzchar(ext)) {
+        ext <- if (format == "xls") "xls" else "html"
+      }
+      target_path <- file.path(dest_dir, paste0(base_name_main, ".", ext))
+      saved_norm <- normalizePath(saved_path, winslash = "/", mustWork = FALSE)
+      target_norm <- normalizePath(target_path, winslash = "/", mustWork = FALSE)
+      if (!identical(saved_norm, target_norm)) {
+        if (file.exists(target_path)) {
+          if (!overwrite) {
+            unlink(saved_path)
+            final_reason <- sprintf("File %s already exists and overwrite = FALSE.", target_path)
+            attempt_messages <- c(
+              attempt_messages,
+              sprintf("%s: %s", root_sym, final_reason)
             )
-          ),
-          silent = TRUE
-        )
-        if (!inherits(parsed_meta, "try-error") && !nrow(parsed_meta)) {
-          reason_flag <- attr(parsed_meta, "reason")
+            next
+          }
+          unlink(target_path)
         }
+        if (!file.rename(saved_path, target_path)) {
+          file.copy(saved_path, target_path, overwrite = TRUE)
+          unlink(saved_path)
+        }
+        saved_path <- target_path
+      }
+      parsed_meta <- try(
+        suppressMessages(
+          parse_bmf_report(
+            saved_path,
+            ticker_root = ticker_root_norm,
+            report_date = current_date,
+            format = NULL
+          )
+        ),
+        silent = TRUE
+      )
+      if (inherits(parsed_meta, "try-error")) {
+        final_reason <- conditionMessage(parsed_meta)
+        attempt_messages <- c(
+          attempt_messages,
+          sprintf("%s: %s", root_sym, final_reason)
+        )
+        if (file.exists(saved_path)) {
+          unlink(saved_path)
+        }
+        next
+      }
+      reason_flag <- NULL
+      if (!nrow(parsed_meta)) {
+        reason_flag <- attr(parsed_meta, "reason")
         if (is.null(reason_flag) && .bmf_file_has_no_data_message(saved_path)) {
           reason_flag <- "no_data"
         }
-        if (!is.null(reason_flag) && reason_flag %in% c("no_data", "missing_tables", "incomplete_tables")) {
-          if (file.exists(saved_path)) {
-            unlink(saved_path)
-          }
-          previous_len <- length(no_data_dates)
-          no_data_dates <<- unique(c(no_data_dates, current_date))
-          if (length(no_data_dates) > previous_len) {
-            flush_no_data_dates()
-          }
-          if (verbose) {
-            message("[", current_date_str, "] ", reason_flag, " (removed file)")
-          }
-          return(data.frame(
-            date = current_date,
-            status = reason_flag,
-            path = NA_character_,
-            message = reason_flag,
-            stringsAsFactors = FALSE
-          ))
-        }
-        saved_path <- normalizePath(saved_path, winslash = "/", mustWork = TRUE)
-        if (verbose) {
-          message("[", current_date_str, "] saved ", saved_path)
-        }
-        data.frame(
-          date = current_date,
-          status = "downloaded",
-          path = saved_path,
-          message = NA_character_,
-          stringsAsFactors = FALSE
+      }
+      if (!is.null(reason_flag) && reason_flag %in% c("no_data", "missing_tables", "incomplete_tables")) {
+        final_reason <- reason_flag
+        attempt_messages <- c(
+          attempt_messages,
+          sprintf("%s: %s", root_sym, reason_flag)
         )
-      },
-      error = function(err) {
-        if (verbose) {
-          message("[", current_date_str, "] error: ", conditionMessage(err))
+        if (file.exists(saved_path)) {
+          unlink(saved_path)
         }
-        data.frame(
+        next
+      }
+      success <- TRUE
+      saved_path_final <- normalizePath(saved_path, winslash = "/", mustWork = TRUE)
+      alias_used <- if (identical(root_sym, ticker_root_norm)) NA_character_ else root_sym
+      break
+    }
+    if (!success) {
+      if (!is.null(final_reason) && final_reason %in% c("no_data", "missing_tables", "incomplete_tables")) {
+        previous_len <- length(no_data_dates)
+        no_data_dates <<- unique(c(no_data_dates, current_date))
+        if (length(no_data_dates) > previous_len) {
+          flush_no_data_dates()
+        }
+        if (verbose) {
+          message("[", current_date_str, "] ", final_reason, " (aliases tried: ", paste(candidate_roots, collapse = ", "), ")")
+        }
+        return(data.frame(
           date = current_date,
-          status = "error",
+          status = final_reason,
           path = NA_character_,
-          message = conditionMessage(err),
+          message = final_reason,
           stringsAsFactors = FALSE
+        ))
+      }
+      if (verbose) {
+        message(
+          "[",
+          current_date_str,
+          "] error: ",
+          if (length(attempt_messages)) attempt_messages[length(attempt_messages)] else final_reason
         )
       }
+      return(data.frame(
+        date = current_date,
+        status = "error",
+        path = NA_character_,
+        message = if (length(attempt_messages)) attempt_messages[length(attempt_messages)] else final_reason,
+        stringsAsFactors = FALSE
+      ))
+    }
+    if (verbose) {
+      if (is.na(alias_used)) {
+        message("[", current_date_str, "] saved ", saved_path_final)
+      } else {
+        message("[", current_date_str, "] saved ", saved_path_final, " (alias ", alias_used, ")")
+      }
+    }
+    data.frame(
+      date = current_date,
+      status = "downloaded",
+      path = saved_path_final,
+      message = if (!is.na(alias_used)) paste0("alias=", alias_used) else NA_character_,
+      stringsAsFactors = FALSE
     )
-    outcome
   })
   all_results <- c(skip_results, download_results)
   summary <- if (length(all_results)) {

@@ -27,6 +27,8 @@
 - 🧱 **High-level pipelines** (`bmf_build_contract_series()`, `bmf_get_aggregate()`, `bmf_get_series()`)
 - 📡 **Quick discovery** of ticker roots using `bmf_list_ticker_roots()`
 - 🇧🇷 **Brazil-specific** with business day calendars and DI futures calculations
+- ♻️ **Legacy naming support** that bridges Portuguese month tickers and root
+  renames (e.g. `ICN` → `CCM`, `BOI` → `BGI`) for seamless histories
 
 ---
 
@@ -47,6 +49,8 @@
 - Compute aggregate data sets
 - Estimate contract maturities
 - Handle missing data and gaps
+- Roll front/next contracts with `bmf_build_continuous_series()` using
+  forward-ratio or Panama-style adjustments, including legacy tickers
 
 ### 💰 DI Futures Support
 - Convert between DI rates and PU (Present Value)
@@ -94,6 +98,15 @@ aggregate <- bmf_get_aggregate("IND", ohlc_locf = TRUE)
 # 📊 Fetch a ready-to-plot OHLCV xts for a single contract
 wdo_xts <- bmf_get_series("WDOZ24", type = "ohlcv_locf")
 
+# 🔁 Build a continuous CCM series, stitching legacy ICN data and Portuguese
+#     month tickers via a Panama-style back adjustment
+ccm_cont <- bmf_build_continuous_series(
+  "CCM",
+  include_older = TRUE,
+  type = "panama",
+  roll_days_before_expiry = 20
+)
+
 # 💰 DI futures example - convert rates to PU
 di_result <- calculate_futures_di_notional(
   rates = 13.5,           # Annualized rate in percent
@@ -102,6 +115,16 @@ di_result <- calculate_futures_di_notional(
 )
 print(di_result$pu)
 ```
+
+---
+
+The `"type"` argument of `bmf_build_continuous_series()` lets you pick between
+`"fwd_rt"` (keep recent prices fixed and scale history forward) and `"panama"`
+(classic Panama back-adjustment). Together with `roll_type`, you control how the
+roll ratio is estimated—median overlap, winsorised log spreads, or an OLS slope.
+Legacy tickers with Portuguese month abbreviations and historical root aliases
+are merged automatically when `include_older = TRUE`, so you get uninterrupted
+series across naming changes.
 
 ---
 
@@ -117,6 +140,7 @@ print(di_result$pu)
 - `parse_bmf_report()` - Harmonised tibble per contract, regardless of source format
 - `bmf_collect_contracts()` - Collate multiple bulletins into one data frame
 - `bmf_build_contract_series()` - Build per-contract `xts` series + maturity estimates
+- `bmf_build_continuous_series()` - Produce front-adjusted back-adjusted chains with modern and legacy tickers
 - `bmf_get_aggregate()` - Load or split the cached aggregate data set
 - `bmf_get_series()` - One contract → OHLC/LOCF xts in your timezone
 
@@ -175,6 +199,12 @@ This package is specifically designed for the Brazilian financial market with:
 ```r
 # Download historical data in bulk
 bmf_download_history("WDO", "2024-01-01", "2024-03-31")
+
+# Requesting CCM automatically fetches legacy ICN bulletins when needed
+bmf_download_history("CCM", "2004-01-01", "2004-12-31")
+
+# Same goes for soybean cattle futures: BGI pulls legacy BOI bulletins too
+bmf_download_history("BGI", "1999-01-01", "1999-12-31")
 
 # Build all series at once with caching
 bmf_build_contract_series("IND", add_agg = TRUE, save_series = TRUE)
