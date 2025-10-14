@@ -6,7 +6,7 @@
 \usage{
 custom_roll(
   fun,
-  roll_days_before_expiry = 20,
+  days_before_expiry = 20,
   clamp_ratio = c(0.6, 1.6),
   roll_control = NULL,
   roll_stagger = 1L,
@@ -18,6 +18,8 @@ custom_roll(
 \item{fun}{Custom function used to estimate seam ratios. It must accept the
 same arguments as the `roll_type` callback documented in
 [brf_build_continuous_series()].}
+
+\item{days_before_expiry}{Business days prior to expiry to begin rolling.}
 
 \item{clamp_ratio}{Lower/upper bounds applied to seam ratios.}
 

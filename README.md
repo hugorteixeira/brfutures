@@ -127,6 +127,9 @@ Legacy tickers with Portuguese month abbreviations and historical root aliases
 are merged automatically when `include_older = TRUE`, so you get uninterrupted
 series across naming changes.
 
+> 💡 For DI futures, the continuous output now carries the \`PU_*\` notional columns as well.
+> If you prefer to align seams on notionals, pass `roll_type = days_before_roll(roll_control = list(price_column = "PU_c"))`.
+
 ---
 
 ## 🧰 Function Reference

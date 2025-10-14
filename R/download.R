@@ -1463,10 +1463,33 @@ if(type == "full"){
         },
         numeric(1)
       )
-      df$PU_o[idx] <- .di_pu_from_rate(df$open[idx], valid_days)
-      df$PU_h[idx] <- .di_pu_from_rate(df$high[idx], valid_days)
-      df$PU_l[idx] <- .di_pu_from_rate(df$low[idx], valid_days)
-      df$PU_c[idx] <- .di_pu_from_rate(df$close[idx], valid_days)
+      lower_names <- tolower(names(df))
+      pu_lookup <- stats::setNames(names(df), lower_names)
+      has_raw_pu <- all(c("pu_o", "pu_h", "pu_l", "pu_c") %in% lower_names)
+      if (has_raw_pu) {
+        df$PU_o[idx] <- suppressWarnings(as.numeric(df[[pu_lookup[["pu_o"]]]][idx]))
+        df$PU_h[idx] <- suppressWarnings(as.numeric(df[[pu_lookup[["pu_h"]]]][idx]))
+        df$PU_l[idx] <- suppressWarnings(as.numeric(df[[pu_lookup[["pu_l"]]]][idx]))
+        df$PU_c[idx] <- suppressWarnings(as.numeric(df[[pu_lookup[["pu_c"]]]][idx]))
+      } else {
+        df$PU_o[idx] <- .di_pu_from_rate(df$open[idx], valid_days)
+        df$PU_h[idx] <- .di_pu_from_rate(df$high[idx], valid_days)
+        df$PU_l[idx] <- .di_pu_from_rate(df$low[idx], valid_days)
+        df$PU_c[idx] <- .di_pu_from_rate(df$close[idx], valid_days)
+      }
+      restore_rates <- function(rate_vec, pu_vec) {
+        needs_rate <- is.finite(pu_vec) & pu_vec > 0 & (!is.finite(rate_vec) | rate_vec > 100)
+        if (!any(needs_rate, na.rm = TRUE)) {
+          return(rate_vec)
+        }
+        converted <- .di_rate_from_pu(pu_vec, valid_days)
+        rate_vec[needs_rate] <- converted[needs_rate]
+        rate_vec
+      }
+      df$open[idx] <- restore_rates(df$open[idx], df$PU_o[idx])
+      df$high[idx] <- restore_rates(df$high[idx], df$PU_h[idx])
+      df$low[idx] <- restore_rates(df$low[idx], df$PU_l[idx])
+      df$close[idx] <- restore_rates(df$close[idx], df$PU_c[idx])
     } else {
       multiplier <- if (prefix == "CCM") 450 else 330
       df$PU_o[idx] <- df$open[idx] * multiplier

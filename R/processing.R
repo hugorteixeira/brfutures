@@ -882,6 +882,10 @@ custom_roll <- function(fun,
   if (has_volume_col) {
     value_cols <- c(value_cols, "volume")
   }
+  notional_cols <- grep("^(pu|no)_", names(PX), ignore.case = TRUE, value = TRUE)
+  if (length(notional_cols)) {
+    value_cols <- unique(c(value_cols, notional_cols))
+  }
   front <- PX[PX$rnk == ranks$primary, c("refdate", "symbol", value_cols), drop = FALSE]
   front_names <- c("refdate", "front_symbol", paste0("f_", value_cols))
   names(front) <- front_names
@@ -955,13 +959,49 @@ custom_roll <- function(fun,
   } else if (has_volume_col && "f_volume" %in% names(daily)) {
     daily$sel_volume <- daily$f_volume
   }
+  extra_cols <- setdiff(value_cols, c("open", "high", "low", "close", "volume"))
+  if (length(extra_cols)) {
+    for (col in extra_cols) {
+      f_col <- paste0("f_", col)
+      n_col <- paste0("n_", col)
+      if (!f_col %in% names(daily) || !n_col %in% names(daily)) {
+        next
+      }
+      sel_col <- paste0("sel_", col)
+      daily[[sel_col]] <- blend_fn(daily[[f_col]], daily[[n_col]])
+    }
+  }
   stopifnot(!anyNA(daily$refdate))
   has_vol <- "sel_volume" %in% names(daily) && any(is.finite(daily$sel_volume))
-  mat <- cbind(daily$sel_open, daily$sel_high, daily$sel_low, daily$sel_close)
-  colnames(mat) <- c("Open", "High", "Low", "Close")
+  sel_map <- list(
+    sel_open = "Open",
+    sel_high = "High",
+    sel_low = "Low",
+    sel_close = "Close"
+  )
   if (has_vol) {
-    mat <- cbind(mat, Volume = daily$sel_volume)
+    sel_map$sel_volume <- "Volume"
   }
+  if (length(extra_cols)) {
+    for (col in extra_cols) {
+      sel_col <- paste0("sel_", col)
+      if (sel_col %in% names(daily)) {
+        sel_map[[sel_col]] <- col
+      }
+    }
+  }
+  mat <- do.call(
+    cbind,
+    lapply(names(sel_map), function(nm) {
+      vals <- daily[[nm]]
+      if (is.null(vals)) {
+        rep(NA_real_, NROW(daily))
+      } else {
+        vals
+      }
+    })
+  )
+  colnames(mat) <- unname(unlist(sel_map))
   no_adj <- xts::xts(mat, order.by = daily$refdate)
   no_adj <- .brf_sanitize_ohlcv_xts(no_adj)
   no_adj <- .brf_xts_deduplicate_daily_last(no_adj)
