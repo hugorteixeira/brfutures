@@ -539,8 +539,8 @@ custom_roll <- function(fun,
   }
   ref_col <- if ("refdate" %in% names_lower) unname(names_map["refdate"]) else best_name("ref|date|data|dt|index")
   sym_col <- if ("symbol" %in% names_lower) unname(names_map["symbol"]) else best_name("symb|ticker|contr|symbol")
-  o_col <- best_name("^open$|abert", exclude_notional = TRUE)
-  h_col <- best_name("^high$|max", exclude_notional = TRUE)
+  o_col <- best_name("^open$|abert", exclude_notional = FALSE)
+  h_col <- best_name("^high$|max", exclude_notional = FALSE)
   l_col <- best_name("^low$|min", exclude_notional = TRUE)
   c_col <- best_name("^close$|fech|sett(le)?|px_last|last", exclude_notional = TRUE)
   v_col <- if ("volume" %in% names_lower) unname(names_map["volume"]) else best_name("^vol$|volume|q(t)?y|contracts|neg|trades")
@@ -644,6 +644,8 @@ custom_roll <- function(fun,
     out[[nm]] <- suppressWarnings(as.numeric(out[[nm]]))
   }
   has_valid_price <- (is.finite(out$close) & out$close > 0)
+  has_valid_price <- TRUE
+
   pu_cols <- grep("^pu_|_pu$|notional", names(out), value = TRUE, ignore.case = TRUE)
   if (length(pu_cols) > 0) {
     has_valid_pu <- rowSums(sapply(out[pu_cols], function(x) is.finite(x) & x > 0)) > 0
@@ -1263,7 +1265,6 @@ brf_build_continuous_series <- function(ticker_root,
       api_res <- try(
         sm_get_data(
           ticker_root_norm,
-          future_history = TRUE,
           single_xts = TRUE,
           set_instruments = FALSE
         ),

@@ -1189,14 +1189,13 @@ brf_get_aggregate <- function(ticker_root,
     api_res <- try(
       sm_get_data(
         ticker_root_norm,
-        future_history = TRUE,
         single_xts = TRUE,
         set_instruments = FALSE
       ),
       silent = FALSE
     )
     if (!inherits(api_res, "try-error") && !is.null(api_res)) {
-      data <- .brf_prepare_continuous_aggregate(api_res, ticker_root_norm)
+      data <- data.frame(api_res)
     } else {
       warning(
         "sm_get_data() is not available; falling back to cached aggregate data.",
@@ -1309,9 +1308,9 @@ brf_get_series <- function(ticker,
       )
       if (!inherits(api_res, "try-error") && !is.null(api_res)) {
         api_data <- .brf_prepare_continuous_aggregate(api_res, ticker_root)
-        # if ("refdate" %in% names(api_data) && !"date" %in% names(api_data)) {
-        # api_data$date <- as.Date(api_data$refdate)
-        # }
+        if ("refdate" %in% names(api_data) && !"date" %in% names(api_data)) {
+          api_data$date <- as.Date(api_data$refdate)
+        }
         if ("symbol" %in% names(api_data) && !"ticker" %in% names(api_data)) {
           api_data$ticker <- as.character(api_data$symbol)
         }
