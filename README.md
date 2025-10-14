@@ -22,10 +22,10 @@
 ## ✨ Highlights
 
 - 🚦 **Robust downloaders** with automatic retries, Excel ➜ HTML fallback, and "no data" caching
-- 🧭 **Format-aware parsing** via `parse_bmf_report()` with clean OHLC columns
+- 🧭 **Format-aware parsing** via `parse_brf_report()` with clean OHLC columns
 - 🗂️ **Cache-friendly storage** under `tools::R_user_dir("brfutures", which)`
-- 🧱 **High-level pipelines** (`bmf_build_contract_series()`, `bmf_get_aggregate()`, `bmf_get_series()`)
-- 📡 **Quick discovery** of ticker roots using `bmf_list_ticker_roots()`
+- 🧱 **High-level pipelines** (`brf_build_contract_series()`, `brf_get_aggregate()`, `brf_get_series()`)
+- 📡 **Quick discovery** of ticker roots using `brf_list_ticker_roots()`
 - 🇧🇷 **Brazil-specific** with business day calendars and DI futures calculations
 - ♻️ **Legacy naming support** that bridges Portuguese month tickers and root
   renames (e.g. `ICN` → `CCM`, `BOI` → `BGI`) for seamless histories
@@ -49,7 +49,7 @@
 - Compute aggregate data sets
 - Estimate contract maturities
 - Handle missing data and gaps
-- Roll front/next contracts with `bmf_build_continuous_series()` using
+- Roll front/next contracts with `brf_build_continuous_series()` using
   forward-ratio or Panama-style adjustments, including legacy tickers
 
 ### 💰 DI Futures Support
@@ -82,29 +82,29 @@ remotes::install_github("hugorteixeira/brfutures")
 library(brfutures)
 
 # 🔍 Discover B3 futures roots
-roots <- bmf_list_ticker_roots()
+roots <- brf_list_ticker_roots()
 head(roots)
 
 # 📥 Download a day of IND bulletins into the cache
-path <- download_bmf_report("2024-04-19", "IND")
+path <- download_brf_report("2024-04-19", "IND")
 
 # 📝 Parse the saved report
-data <- parse_bmf_report(path)
+data <- parse_brf_report(path)
 
 # 🔄 Build xts series, materialise an aggregate, and estimate maturities
-series <- bmf_build_contract_series("IND", add_agg = TRUE, estimate_maturity = TRUE)
-aggregate <- bmf_get_aggregate("IND", ohlc_locf = TRUE)
+series <- brf_build_contract_series("IND", add_agg = TRUE, estimate_maturity = TRUE)
+aggregate <- brf_get_aggregate("IND", ohlc_locf = TRUE)
 
 # 📊 Fetch a ready-to-plot OHLCV xts for a single contract
-wdo_xts <- bmf_get_series("WDOZ24", type = "ohlcv_locf")
+wdo_xts <- brf_get_series("WDOZ24", type = "ohlcv_locf")
 
 # 🔁 Build a continuous CCM series, stitching legacy ICN data and Portuguese
 #     month tickers via a Panama-style back adjustment
-ccm_cont <- bmf_build_continuous_series(
+ccm_cont <- brf_build_continuous_series(
   "CCM",
-  include_older = TRUE,
-  type = "panama",
-  roll_days_before_expiry = 20
+  build_type = "panama",
+  roll_type = days_before_roll(days_before_expiry = 20),
+  include_older = TRUE
 )
 
 # 💰 DI futures example - convert rates to PU
@@ -118,10 +118,11 @@ print(di_result$pu)
 
 ---
 
-The `"type"` argument of `bmf_build_continuous_series()` lets you pick between
+The `build_type` argument of `brf_build_continuous_series()` lets you pick between
 `"fwd_rt"` (keep recent prices fixed and scale history forward) and `"panama"`
-(classic Panama back-adjustment). Together with `roll_type`, you control how the
-roll ratio is estimated—median overlap, winsorised log spreads, or an OLS slope.
+(classic Panama back-adjustment). Pair that with a roll specification such as
+`days_before_roll()` or `windsor_log_spread_roll()` to control how and when each
+seam is calculated, including staggered rolls and diagnostic output.
 Legacy tickers with Portuguese month abbreviations and historical root aliases
 are merged automatically when `include_older = TRUE`, so you get uninterrupted
 series across naming changes.
@@ -131,18 +132,19 @@ series across naming changes.
 ## 🧰 Function Reference
 
 ### 📥 Data Download & Management
-- `download_bmf_report()` - Retry-friendly bulletin downloader (Excel ↔ HTML)
-- `bmf_bulletin_url()` - Build download URL for B3 futures bulletin
-- `bmf_download_history()` - Download a range of bulletins for a ticker root
-- `bmf_list_ticker_roots()` - Retrieve available ticker roots from B3 bulletin
+- `download_brf_report()` - Retry-friendly bulletin downloader (Excel ↔ HTML)
+- `brf_bulletin_url()` - Build download URL for B3 futures bulletin
+- `brf_download_history()` - Download a range of bulletins for a ticker root
+- `brf_list_ticker_roots()` - Retrieve available ticker roots from B3 bulletin
 
 ### 📝 Parsing & Data Processing
-- `parse_bmf_report()` - Harmonised tibble per contract, regardless of source format
-- `bmf_collect_contracts()` - Collate multiple bulletins into one data frame
-- `bmf_build_contract_series()` - Build per-contract `xts` series + maturity estimates
-- `bmf_build_continuous_series()` - Produce front-adjusted back-adjusted chains with modern and legacy tickers
-- `bmf_get_aggregate()` - Load or split the cached aggregate data set
-- `bmf_get_series()` - One contract → OHLC/LOCF xts in your timezone
+- `parse_brf_report()` - Harmonised tibble per contract, regardless of source format
+- `brf_collect_contracts()` - Collate multiple bulletins into one data frame
+- `brf_build_contract_series()` - Build per-contract `xts` series + maturity estimates
+- `brf_build_continuous_series()` - Produce front-adjusted back-adjusted chains with modern and legacy tickers
+- `days_before_roll()` / `windsor_log_spread_roll()` / `regression_roll()` / `custom_roll()` - Declare roll specifications for continuous chains
+- `brf_get_aggregate()` - Load or split the cached aggregate data set
+- `brf_get_series()` - One contract → OHLC/LOCF xts in your timezone
 
 ### 💰 DI Futures Calculations
 - `calculate_futures_di_notional()` - DI notional (PU) from annualized rates
@@ -163,7 +165,7 @@ series across naming changes.
 options(brfutures.cachedir = "~/fin-data/br-cache")
 
 # Pass explicit directory to functions
-download_bmf_report("2024-04-19", "IND", dest_dir = "/path/to/cache")
+download_brf_report("2024-04-19", "IND", dest_dir = "/path/to/cache")
 ```
 
 ### Caching Features
@@ -189,7 +191,7 @@ This package is specifically designed for the Brazilian financial market with:
 - Currency futures (DOL, WDO)
 - DI futures (DI1)
 - Commodity futures (various types)
-- And more [discoverable with `bmf_list_ticker_roots()`]
+- And more [discoverable with `brf_list_ticker_roots()`]
 
 ---
 
@@ -198,34 +200,34 @@ This package is specifically designed for the Brazilian financial market with:
 ### 🚀 Performance Optimization
 ```r
 # Download historical data in bulk
-bmf_download_history("WDO", "2024-01-01", "2024-03-31")
+brf_download_history("WDO", "2024-01-01", "2024-03-31")
 
 # Requesting CCM automatically fetches legacy ICN bulletins when needed
-bmf_download_history("CCM", "2004-01-01", "2004-12-31")
+brf_download_history("CCM", "2004-01-01", "2004-12-31")
 
 # Same goes for soybean cattle futures: BGI pulls legacy BOI bulletins too
-bmf_download_history("BGI", "1999-01-01", "1999-12-31")
+brf_download_history("BGI", "1999-01-01", "1999-12-31")
 
 # Build all series at once with caching
-bmf_build_contract_series("IND", add_agg = TRUE, save_series = TRUE)
+brf_build_contract_series("IND", add_agg = TRUE, save_series = TRUE)
 ```
 
 ### 📊 Data Quality
 ```r
 # Use LOCF (Last Observation Carried Forward) for gaps
-bmf_get_series("WDOZ24", type = "ohlcv_locf")
+brf_get_series("WDOZ24", type = "ohlcv_locf")
 
 # Check for missing data
-aggregate <- bmf_get_aggregate("DI1", ohlc_locf = TRUE)
+aggregate <- brf_get_aggregate("DI1", ohlc_locf = TRUE)
 ```
 
 ### 🔧 Advanced Options
 ```r
 # Specify custom timezone
-bmf_get_series("WDOZ24", tz = "UTC")
+brf_get_series("WDOZ24", tz = "UTC")
 
 # Get raw aggregate data without processing
-bmf_get_aggregate("DI1", return = "agg")
+brf_get_aggregate("DI1", return = "agg")
 ```
 
 ---

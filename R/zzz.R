@@ -8,7 +8,7 @@
       # Load built-in calendars (includes ANBIMA holidays)
       bizdays::load_builtin_calendars()
       # Pre-create the package calendar so it is ready for use
-      invisible(.bmf_get_calendar())
+      invisible(.brf_get_calendar())
     }, error = function(e) {
       # Use warning() instead of packageStartupMessage() in .onLoad
       warning(
@@ -54,7 +54,7 @@
     "",
     "Author: Hugo Rzepian Teixeira",
     "GitHub: https://github.com/hugorteixeira/brfutures",
-    "\nTip: use bmf_download_history() to refresh your cache."
+    "\nTip: use brf_download_history() to refresh your cache."
   )
 
   packageStartupMessage(paste(lines, collapse = "\n"))

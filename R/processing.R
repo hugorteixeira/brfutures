@@ -1,6 +1,6 @@
 # Continuous series helpers ---------------------------------------------------
 
-.bmf_sanitize_ohlcv_xts <- function(x_xts) {
+.brf_sanitize_ohlcv_xts <- function(x_xts) {
   if (is.null(x_xts) || NROW(x_xts) == 0) {
     return(xts::xts())
   }
@@ -52,7 +52,7 @@
   y
 }
 
-.bmf_xts_deduplicate_daily_last <- function(x_xts) {
+.brf_xts_deduplicate_daily_last <- function(x_xts) {
   if (is.null(x_xts) || NROW(x_xts) == 0) {
     return(x_xts)
   }
@@ -61,7 +61,7 @@
   x_xts[keep]
 }
 
-.bmf_compute_roll_date_from_maturity <- function(days_vec,
+.brf_compute_roll_date_from_maturity <- function(days_vec,
                                                  estimated_maturity,
                                                  roll_days) {
   if (length(days_vec) == 0) {
@@ -81,7 +81,7 @@
   days_vec[roll_idx]
 }
 
-.bmf_price_last_on_or_before <- function(x_xts, d, col = "Close") {
+.brf_price_last_on_or_before <- function(x_xts, d, col = "Close") {
   if (NROW(x_xts) == 0) {
     return(NA_real_)
   }
@@ -93,7 +93,7 @@
   as.numeric(x_xts[ix[length(ix)], col])
 }
 
-.bmf_price_first_on_or_after <- function(x_xts, d, col = "Close") {
+.brf_price_first_on_or_after <- function(x_xts, d, col = "Close") {
   if (NROW(x_xts) == 0) {
     return(NA_real_)
   }
@@ -105,29 +105,359 @@
   as.numeric(x_xts[ix[1], col])
 }
 
-.bmf_compute_seam_ratio <- function(prev_raw,
+.brf_default_roll_control <- function() {
+  list(
+    window_pre = 20L,
+    window_post = 5L,
+    min_overlap = 3L,
+    winsor = c(0.05, 0.95),
+    price_column = "Close"
+  )
+}
+
+.brf_normalize_roll_control <- function(ctrl) {
+  defaults <- .brf_default_roll_control()
+  if (is.null(ctrl)) {
+    return(defaults)
+  }
+  if (!is.list(ctrl)) {
+    stop("roll_control must be NULL or a list.", call. = FALSE)
+  }
+  merged <- utils::modifyList(defaults, ctrl, keep.null = TRUE)
+  merged$window_pre <- as.integer(merged$window_pre)
+  if (is.na(merged$window_pre) || merged$window_pre < 0) {
+    merged$window_pre <- defaults$window_pre
+  }
+  merged$window_post <- as.integer(merged$window_post)
+  if (is.na(merged$window_post) || merged$window_post < 0) {
+    merged$window_post <- defaults$window_post
+  }
+  merged$min_overlap <- as.integer(merged$min_overlap)
+  if (is.na(merged$min_overlap) || merged$min_overlap < 1) {
+    merged$min_overlap <- defaults$min_overlap
+  }
+  if (!is.numeric(merged$winsor) || length(merged$winsor) != 2L) {
+    merged$winsor <- defaults$winsor
+  }
+  merged$winsor <- sort(pmax(pmin(merged$winsor, 1), 0))
+  if (!is.character(merged$price_column) || !length(merged$price_column)) {
+    merged$price_column <- defaults$price_column
+  }
+  merged$price_column <- merged$price_column[1L]
+  merged
+}
+
+.brf_roll_price_columns <- function(daily, price_column = "Close") {
+  suffix <- tolower(price_column)
+  front_col <- paste0("f_", suffix)
+  secondary_col <- paste0("n_", suffix)
+  if (!front_col %in% names(daily) || !secondary_col %in% names(daily)) {
+    front_col <- "f_close"
+    secondary_col <- "n_close"
+  }
+  list(front = front_col, secondary = secondary_col)
+}
+
+.brf_enrich_roll_details <- function(daily,
+                                     seam_idx,
+                                     ratios,
+                                     roll_control) {
+  if (!NROW(daily)) {
+    return(daily)
+  }
+  ramp_mask <- if ("secondary_weight" %in% names(daily)) {
+    daily$secondary_weight > 0 & daily$secondary_weight < 1
+  } else {
+    rep(FALSE, NROW(daily))
+  }
+  daily$roll_event <- ramp_mask
+  daily$roll_seam <- rep(FALSE, NROW(daily))
+  daily$roll_ratio <- NA_real_
+  daily$roll_front_price <- NA_real_
+  daily$roll_secondary_price <- NA_real_
+  daily$roll_spread <- NA_real_
+  daily$roll_spread_pct <- NA_real_
+  daily$roll_basis_bp <- NA_real_
+  if (!length(seam_idx)) {
+    return(daily)
+  }
+  cols <- .brf_roll_price_columns(daily, roll_control$price_column)
+  front_px <- daily[[cols$front]]
+  secondary_px <- daily[[cols$secondary]]
+  seam_idx <- seam_idx[seam_idx <= NROW(daily)]
+  seam_ratios <- ratios
+  if (length(seam_ratios) < length(seam_idx)) {
+    seam_ratios <- c(seam_ratios, rep(NA_real_, length(seam_idx) - length(seam_ratios)))
+  }
+  seam_ratios <- seam_ratios[seq_len(length(seam_idx))]
+  daily$roll_event[seam_idx] <- TRUE
+  daily$roll_seam[seam_idx] <- TRUE
+  daily$roll_ratio[seam_idx] <- seam_ratios
+  daily$roll_front_price[seam_idx] <- front_px[seam_idx]
+  daily$roll_secondary_price[seam_idx] <- secondary_px[seam_idx]
+  spread <- secondary_px - front_px
+  with_valid <- seam_idx[is.finite(front_px[seam_idx]) & is.finite(secondary_px[seam_idx])]
+  if (length(with_valid)) {
+    daily$roll_spread[with_valid] <- spread[with_valid]
+    pct <- (secondary_px[with_valid] / front_px[with_valid]) - 1
+    daily$roll_spread_pct[with_valid] <- pct
+    daily$roll_basis_bp[with_valid] <- pct * 10000
+  }
+  daily
+}
+
+.brf_normalize_contract_ranks <- function(contract_ranks) {
+  default <- list(primary = 1L, secondary = 2L)
+  if (is.null(contract_ranks)) {
+    return(default)
+  }
+  if (is.list(contract_ranks)) {
+    vals <- unlist(contract_ranks, use.names = FALSE)
+  } else {
+    vals <- contract_ranks
+  }
+  vals <- as.integer(vals)
+  vals <- vals[is.finite(vals)]
+  if (!length(vals)) {
+    return(default)
+  }
+  primary <- vals[1L]
+  if (is.na(primary) || primary < 1L) {
+    primary <- default$primary
+  }
+  secondary <- if (length(vals) >= 2L) vals[2L] else (primary + 1L)
+  if (is.na(secondary) || secondary <= primary) {
+    secondary <- primary + 1L
+  }
+  list(primary = primary, secondary = secondary)
+}
+
+.brf_roll_spec <- function(method, ...) {
+  structure(
+    list(
+      method = method,
+      params = list(...)
+    ),
+    class = "brf_roll_spec"
+  )
+}
+
+.brf_is_roll_spec <- function(x) inherits(x, "brf_roll_spec")
+
+.brf_resolve_roll_spec <- function(roll) {
+  if (missing(roll) || is.null(roll)) {
+    roll <- days_before_roll()
+  }
+  defaults <- list(
+    roll_type = "days_before_roll",
+    roll_days_before_expiry = 20L,
+    clamp_ratio = c(0.6, 1.6),
+    roll_control = NULL,
+    roll_stagger = 1L,
+    contract_ranks = c(1L, 2L),
+    include_roll_details = FALSE
+  )
+  if (.brf_is_roll_spec(roll)) {
+    params <- roll$params
+    aliases <- list(
+      days_before_expiry = "roll_days_before_expiry",
+      clamp = "clamp_ratio",
+      stagger = "roll_stagger",
+      include_details = "include_roll_details",
+      include_stats = "include_roll_details"
+    )
+    for (alias in names(aliases)) {
+      if (alias %in% names(params)) {
+        params[[aliases[[alias]]]] <- params[[alias]]
+      }
+    }
+    spec <- utils::modifyList(defaults, params, keep.null = TRUE)
+    spec$roll_type <- roll$method
+  } else if (is.character(roll)) {
+    spec <- defaults
+    spec$roll_type <- match.arg(roll, c("days_before_roll", "windsor_log_spread", "regression"))
+  } else if (is.function(roll)) {
+    spec <- defaults
+    spec$roll_type <- roll
+  } else {
+    stop("roll_type must be a roll specification, character identifier, or function.", call. = FALSE)
+  }
+  spec$roll_days_before_expiry <- as.integer(spec$roll_days_before_expiry)
+  if (is.na(spec$roll_days_before_expiry) || spec$roll_days_before_expiry < 0L) {
+    spec$roll_days_before_expiry <- 20L
+  }
+  clamp <- as.numeric(spec$clamp_ratio)
+  if (!length(clamp)) {
+    clamp <- c(0.6, 1.6)
+  } else if (length(clamp) == 1L) {
+    clamp <- rep(clamp, 2L)
+  } else {
+    clamp <- clamp[seq_len(2L)]
+  }
+  clamp[!is.finite(clamp)] <- NA
+  if (any(is.na(clamp))) {
+    clamp <- c(0.6, 1.6)
+  }
+  spec$clamp_ratio <- clamp
+  spec$roll_stagger <- as.integer(spec$roll_stagger)
+  if (is.na(spec$roll_stagger) || spec$roll_stagger < 1L) {
+    spec$roll_stagger <- 1L
+  }
+  ranks <- as.integer(spec$contract_ranks)
+  ranks <- ranks[is.finite(ranks)]
+  if (!length(ranks)) {
+    ranks <- c(1L, 2L)
+  }
+  spec$contract_ranks <- ranks
+  spec$include_roll_details <- isTRUE(spec$include_roll_details)
+  spec$roll_control <- .brf_normalize_roll_control(spec$roll_control)
+  spec
+}
+
+#' Roll specification: days-before-expiry switching
+#'
+#' Create a roll specification that transitions exposure from the primary to the
+#' secondary contract a fixed number of business days before expiry. The
+#' returned object is intended to be passed to the `roll_type` argument of
+#' [brf_build_continuous_series()].
+#'
+#' @param days_before_expiry Business days prior to expiry to begin rolling.
+#' @param clamp_ratio Lower/upper bounds applied to seam ratios.
+#' @param roll_control Optional list merged into the default roll control
+#'   settings (see [brf_build_continuous_series()]).
+#' @param roll_stagger Number of business days used to stagger the roll.
+#' @param contract_ranks Which contract ranks to stitch (defaults to front/next).
+#' @param include_roll_details When `TRUE`, enrich the daily output with roll
+#'   diagnostics.
+#'
+#' @return A roll specification consumable by [brf_build_continuous_series()].
+#' @export
+days_before_roll <- function(days_before_expiry = 20,
+                             clamp_ratio = c(0.6, 1.6),
+                             roll_control = NULL,
+                             roll_stagger = 1L,
+                             contract_ranks = c(1L, 2L),
+                             include_roll_details = FALSE) {
+  .brf_roll_spec(
+    method = "days_before_roll",
+    roll_days_before_expiry = days_before_expiry,
+    clamp_ratio = clamp_ratio,
+    roll_control = roll_control,
+    roll_stagger = roll_stagger,
+    contract_ranks = contract_ranks,
+    include_roll_details = include_roll_details
+  )
+}
+
+#' Roll specification: winsorised log-spread seam ratio
+#'
+#' @inheritParams days_before_roll
+#' @param winsor Probability cut-offs for the winsorisation step applied to log
+#'   spreads around the seam.
+#'
+#' @export
+windsor_log_spread_roll <- function(days_before_expiry = 20,
+                                    clamp_ratio = c(0.6, 1.6),
+                                    winsor = c(0.05, 0.95),
+                                    roll_control = NULL,
+                                    roll_stagger = 1L,
+                                    contract_ranks = c(1L, 2L),
+                                    include_roll_details = FALSE) {
+  if (is.null(roll_control)) {
+    roll_control <- list()
+  }
+  roll_control$winsor <- winsor
+  .brf_roll_spec(
+    method = "windsor_log_spread",
+    roll_days_before_expiry = days_before_expiry,
+    clamp_ratio = clamp_ratio,
+    roll_control = roll_control,
+    roll_stagger = roll_stagger,
+    contract_ranks = contract_ranks,
+    include_roll_details = include_roll_details
+  )
+}
+
+#' Roll specification: regression-based seam ratio
+#'
+#' @inheritParams days_before_roll
+#'
+#' @export
+regression_roll <- function(days_before_expiry = 20,
+                            clamp_ratio = c(0.6, 1.6),
+                            roll_control = NULL,
+                            roll_stagger = 1L,
+                            contract_ranks = c(1L, 2L),
+                            include_roll_details = FALSE) {
+  .brf_roll_spec(
+    method = "regression",
+    roll_days_before_expiry = days_before_expiry,
+    clamp_ratio = clamp_ratio,
+    roll_control = roll_control,
+    roll_stagger = roll_stagger,
+    contract_ranks = contract_ranks,
+    include_roll_details = include_roll_details
+  )
+}
+
+#' Roll specification: custom seam function
+#'
+#' @inheritParams days_before_roll
+#' @param fun Custom function used to estimate seam ratios. It must accept the
+#'   same arguments as the `roll_type` callback documented in
+#'   [brf_build_continuous_series()].
+#'
+#' @export
+custom_roll <- function(fun,
+                        days_before_expiry = 20,
+                        clamp_ratio = c(0.6, 1.6),
+                        roll_control = NULL,
+                        roll_stagger = 1L,
+                        contract_ranks = c(1L, 2L),
+                        include_roll_details = FALSE) {
+  if (!is.function(fun)) {
+    stop("fun must be a function.", call. = FALSE)
+  }
+  .brf_roll_spec(
+    method = fun,
+    roll_days_before_expiry = days_before_expiry,
+    clamp_ratio = clamp_ratio,
+    roll_control = roll_control,
+    roll_stagger = roll_stagger,
+    contract_ranks = contract_ranks,
+    include_roll_details = include_roll_details
+  )
+}
+
+.brf_compute_seam_ratio <- function(prev_raw,
                                     curr_raw,
                                     seam_date,
                                     window_pre = 20,
                                     window_post = 0,
                                     min_overlap = 3,
-                                    clamp = c(0.6, 1.6)) {
+                                    clamp = c(0.6, 1.6),
+                                    price_column = "Close") {
   if (NROW(prev_raw) == 0 || NROW(curr_raw) == 0) {
     return(NA_real_)
   }
-  extract_close <- function(x) {
+  extract_price <- function(x) {
     if (NROW(x) == 0) {
       return(xts::xts())
     }
-    if ("Close" %in% colnames(x)) {
-      return(x[, "Close", drop = FALSE])
+    column <- price_column
+    if (!column %in% colnames(x)) {
+      column <- if ("Close" %in% colnames(x)) {
+        "Close"
+      } else {
+        colnames(x)[1L]
+      }
     }
-    x[, 1L, drop = FALSE]
+    x[, column, drop = FALSE]
   }
   rng <- paste0(as.Date(seam_date) - window_pre, "/",
                 as.Date(seam_date) + window_post)
-  a <- extract_close(prev_raw[rng])
-  b <- extract_close(curr_raw[rng])
+  a <- extract_price(prev_raw[rng])
+  b <- extract_price(curr_raw[rng])
   if (NROW(a) > 0 && NROW(b) > 0) {
     merged <- merge(a, b, join = "inner")
     if (NROW(merged) > 0) {
@@ -143,8 +473,8 @@
       }
     }
   }
-  p_prev <- .bmf_price_last_on_or_before(prev_raw, seam_date, col = "Close")
-  p_curr <- .bmf_price_first_on_or_after(curr_raw, seam_date, col = "Close")
+  p_prev <- .brf_price_last_on_or_before(prev_raw, seam_date, col = price_column)
+  p_curr <- .brf_price_first_on_or_after(curr_raw, seam_date, col = price_column)
   if (is.finite(p_prev) && is.finite(p_curr) && p_prev > 0 && p_curr > 0) {
     r <- p_prev / p_curr
     return(max(min(r, clamp[2]), clamp[1]))
@@ -152,7 +482,7 @@
   NA_real_
 }
 
-.bmf_prepare_continuous_aggregate <- function(data, ticker_root) {
+.brf_prepare_continuous_aggregate <- function(data, ticker_root) {
   if (is.null(data)) {
     stop("Aggregate data is empty for ", ticker_root, ".", call. = FALSE)
   }
@@ -271,14 +601,14 @@
     valid_idx <- is.na(out$estimated_maturity) &
       !is.na(sym_for_maturity) & nzchar(sym_for_maturity)
     if (any(valid_idx)) {
-      calendar_name <- .bmf_get_calendar()
+      calendar_name <- .brf_get_calendar()
       unique_syms <- unique(sym_for_maturity[valid_idx])
       unique_syms <- unique_syms[!is.na(unique_syms) & nzchar(unique_syms)]
       if (length(unique_syms)) {
         est_map <- stats::setNames(
           vapply(
             unique_syms,
-            function(sym) .bmf_estimate_maturity(sym, calendar_name = calendar_name),
+            function(sym) .brf_estimate_maturity(sym, calendar_name = calendar_name),
             FUN.VALUE = as.Date(NA)
           ),
           unique_syms
@@ -323,7 +653,7 @@
   out
 }
 
-.bmf_split_contracts_xts <- function(agg_df) {
+.brf_split_contracts_xts <- function(agg_df) {
   ordered <- agg_df[order(agg_df$symbol, agg_df$refdate), , drop = FALSE]
   dup_mask <- !duplicated(ordered[, c("symbol", "refdate")], fromLast = TRUE)
   ordered <- ordered[dup_mask, , drop = FALSE]
@@ -341,7 +671,7 @@
     } else {
       colnames(xt) <- c("Open", "High", "Low", "Close")
     }
-    .bmf_sanitize_ohlcv_xts(xt)
+    .brf_sanitize_ohlcv_xts(xt)
   })
   expiry <- vapply(splits, function(sub) {
     vals <- unique(na.omit(sub$estimated_maturity))
@@ -357,7 +687,7 @@
   list(lst_xts = lst, expiry = expiry)
 }
 
-.bmf_filter_by_maturity <- function(agg_df, maturities) {
+.brf_filter_by_maturity <- function(agg_df, maturities) {
   if (is.null(maturities) || !length(maturities)) {
     return(agg_df)
   }
@@ -387,29 +717,31 @@
   agg_df[keep, , drop = FALSE]
 }
 
-.bmf_overlap_closes <- function(prev_xts, curr_xts, seam_date,
-                                window_pre = 20, window_post = 5) {
+.brf_overlap_prices <- function(prev_xts, curr_xts, seam_date,
+                                window_pre = 20, window_post = 5,
+                                price_column = "Close") {
   if (is.null(prev_xts) || is.null(curr_xts)) {
     return(data.frame(prev = numeric(), curr = numeric()))
   }
   if (!NCOL(prev_xts) || !NCOL(curr_xts)) {
     return(data.frame(prev = numeric(), curr = numeric()))
   }
-  if (!"Close" %in% colnames(prev_xts)) {
-    prev_xts <- prev_xts[, 1, drop = FALSE]
-    colnames(prev_xts) <- "Close"
+  pick_col <- function(x) {
+    col_match <- price_column
+    if (!col_match %in% colnames(x)) {
+      col_match <- if ("Close" %in% colnames(x)) "Close" else colnames(x)[1L]
+    }
+    col_match
   }
-  if (!"Close" %in% colnames(curr_xts)) {
-    curr_xts <- curr_xts[, 1, drop = FALSE]
-    colnames(curr_xts) <- "Close"
-  }
+  prev_col <- pick_col(prev_xts)
+  curr_col <- pick_col(curr_xts)
   rng <- paste0(as.Date(seam_date) - window_pre, "/", as.Date(seam_date) + window_post)
-  prev_win <- prev_xts[rng]
-  curr_win <- curr_xts[rng]
+  prev_win <- prev_xts[rng, prev_col, drop = FALSE]
+  curr_win <- curr_xts[rng, curr_col, drop = FALSE]
   if (!NROW(prev_win) || !NROW(curr_win)) {
     return(data.frame(prev = numeric(), curr = numeric()))
   }
-  merged <- xts::merge.xts(prev_win[, "Close", drop = FALSE], curr_win[, "Close", drop = FALSE], join = "inner")
+  merged <- xts::merge.xts(prev_win, curr_win, join = "inner")
   if (!NROW(merged)) {
     return(data.frame(prev = numeric(), curr = numeric()))
   }
@@ -419,42 +751,49 @@
   data.frame(prev = prev_vals[ok], curr = curr_vals[ok])
 }
 
-.bmf_compute_roll_ratios <- function(sym_vec,
+.brf_compute_roll_ratios <- function(sym_vec,
                                      dates,
                                      lst_xts,
                                      seam_idx,
                                      clamp_ratio,
-                                     roll_type) {
+                                     roll_type,
+                                     roll_control) {
   if (!length(seam_idx)) {
     return(numeric(0))
   }
+  rc <- .brf_normalize_roll_control(roll_control)
   default_ratio <- function(ii) {
     prev_sym <- sym_vec[ii - 1L]
     curr_sym <- sym_vec[ii]
     seam_d <- dates[ii]
     prev_xts <- lst_xts[[prev_sym]]
     curr_xts <- lst_xts[[curr_sym]]
-    .bmf_compute_seam_ratio(
+    .brf_compute_seam_ratio(
       prev_xts,
       curr_xts,
       seam_d,
-      window_pre = 20,
-      window_post = 5,
-      min_overlap = 3,
-      clamp = clamp_ratio
+      window_pre = rc$window_pre,
+      window_post = rc$window_post,
+      min_overlap = rc$min_overlap,
+      clamp = clamp_ratio,
+      price_column = rc$price_column
     )
   }
   windsor_ratio <- function(ii) {
-    overlap <- .bmf_overlap_closes(
+    overlap <- .brf_overlap_prices(
       lst_xts[[sym_vec[ii - 1L]]],
       lst_xts[[sym_vec[ii]]],
-      dates[ii]
+      dates[ii],
+      window_pre = rc$window_pre,
+      window_post = rc$window_post,
+      price_column = rc$price_column
     )
     if (nrow(overlap) < 3) {
       return(as.numeric(default_ratio(ii)))
     }
     log_spread <- log(overlap$prev) - log(overlap$curr)
-    q <- stats::quantile(log_spread, probs = c(0.05, 0.95), na.rm = TRUE, type = 8)
+    wins <- rc$winsor
+    q <- stats::quantile(log_spread, probs = wins, na.rm = TRUE, type = 8)
     log_spread <- pmin(pmax(log_spread, q[1L]), q[2L])
     ratio <- exp(stats::median(log_spread, na.rm = TRUE))
     if (!is.finite(ratio) || ratio <= 0) {
@@ -463,10 +802,13 @@
     max(min(ratio, clamp_ratio[2L]), clamp_ratio[1L])
   }
   regression_ratio <- function(ii) {
-    overlap <- .bmf_overlap_closes(
+    overlap <- .brf_overlap_prices(
       lst_xts[[sym_vec[ii - 1L]]],
       lst_xts[[sym_vec[ii]]],
-      dates[ii]
+      dates[ii],
+      window_pre = rc$window_pre,
+      window_post = rc$window_post,
+      price_column = rc$price_column
     )
     if (nrow(overlap) < 3) {
       return(as.numeric(default_ratio(ii)))
@@ -484,7 +826,10 @@
     max(min(slope, clamp_ratio[2L]), clamp_ratio[1L])
   }
   if (is.function(roll_type)) {
-    custom_ratios <- roll_type(sym_vec, dates, lst_xts, seam_idx, clamp_ratio)
+    custom_ratios <- tryCatch(
+      roll_type(sym_vec, dates, lst_xts, seam_idx, clamp_ratio, rc),
+      error = function(...) roll_type(sym_vec, dates, lst_xts, seam_idx, clamp_ratio)
+    )
     return(as.numeric(custom_ratios))
   }
   roll_type <- match.arg(roll_type, c("days_before_roll", "windsor_log_spread", "regression"))
@@ -496,11 +841,17 @@
   )
 }
 
-.bmf_build_daily_front_chain <- function(agg_df,
+.brf_build_daily_front_chain <- function(agg_df,
                                          roll_days_before_expiry = 20,
                                          clamp_ratio = c(0.6, 1.6),
                                          roll_type = "days_before_roll",
-                                         adjust_type = "fwd_rt") {
+                                         adjust_type = "fwd_rt",
+                                         roll_control = NULL,
+                                         include_roll_details = FALSE,
+                                         contract_ranks = NULL,
+                                         roll_stagger = 1L) {
+  rc <- .brf_normalize_roll_control(roll_control)
+  ranks <- .brf_normalize_contract_ranks(contract_ranks)
   ordered <- agg_df[order(agg_df$symbol, agg_df$refdate), , drop = FALSE]
   dup_mask <- !duplicated(ordered[, c("symbol", "refdate")], fromLast = TRUE)
   PX <- ordered[dup_mask, , drop = FALSE]
@@ -531,15 +882,17 @@
   if (has_volume_col) {
     value_cols <- c(value_cols, "volume")
   }
-  front <- PX[PX$rnk == 1, c("refdate", "symbol", value_cols), drop = FALSE]
+  front <- PX[PX$rnk == ranks$primary, c("refdate", "symbol", value_cols), drop = FALSE]
   front_names <- c("refdate", "front_symbol", paste0("f_", value_cols))
   names(front) <- front_names
   front <- front[order(front$refdate), , drop = FALSE]
-  nextc <- PX[PX$rnk == 2, c("refdate", "symbol", value_cols), drop = FALSE]
+  nextc <- PX[PX$rnk == ranks$secondary, c("refdate", "symbol", value_cols), drop = FALSE]
   next_names <- c("refdate", "next_symbol", paste0("n_", value_cols))
   names(nextc) <- next_names
   nextc <- nextc[order(nextc$refdate), , drop = FALSE]
   daily <- merge(front, nextc, by = "refdate", all.x = TRUE, sort = TRUE)
+  daily$front_rank <- ranks$primary
+  daily$secondary_rank <- ranks$secondary
   days_by_symbol <- tapply(PX$refdate, PX$symbol, function(x) sort(unique(as.Date(x))), simplify = FALSE)
   maturity_by_symbol <- sapply(split(PX$estimated_maturity, PX$symbol), function(x) {
     vals <- unique(na.omit(x))
@@ -552,7 +905,7 @@
   roll_dates <- sapply(names(days_by_symbol), function(sym) {
     dvec <- days_by_symbol[[sym]]
     est <- maturity_by_symbol[[sym]]
-    .bmf_compute_roll_date_from_maturity(dvec, est, roll_days_before_expiry)
+    .brf_compute_roll_date_from_maturity(dvec, est, roll_days_before_expiry)
   })
   roll_df <- data.frame(
     front_symbol = names(roll_dates),
@@ -561,20 +914,44 @@
   )
   daily <- merge(daily, roll_df, by = "front_symbol", all.x = TRUE, sort = FALSE)
   daily <- daily[order(daily$refdate), , drop = FALSE]
-  cond <- !is.na(daily$front_roll_date) &
-    daily$refdate >= daily$front_roll_date &
-    !is.na(daily$next_symbol)
-  daily$sel_symbol <- ifelse(cond, daily$next_symbol, daily$front_symbol)
-  pick_fn <- function(front_vals, next_vals) {
-    out <- ifelse(cond, next_vals, front_vals)
-    ifelse(is.na(out), front_vals, out)
+  roll_stagger <- as.integer(roll_stagger)
+  if (is.na(roll_stagger) || roll_stagger < 1L) {
+    roll_stagger <- 1L
   }
-  daily$sel_open  <- pick_fn(daily$f_open,  daily$n_open)
-  daily$sel_high  <- pick_fn(daily$f_high,  daily$n_high)
-  daily$sel_low   <- pick_fn(daily$f_low,   daily$n_low)
-  daily$sel_close <- pick_fn(daily$f_close, daily$n_close)
+  has_secondary <- !is.na(daily$next_symbol)
+  secondary_weight <- rep(0, NROW(daily))
+  if (any(has_secondary)) {
+    delta <- as.numeric(daily$front_roll_date - daily$refdate)
+    secondary_weight[has_secondary & !is.na(delta) & delta <= 0] <- 1
+    ramp_mask <- has_secondary & !is.na(delta) & delta > 0 & delta < roll_stagger
+    secondary_weight[ramp_mask] <- 1 - (delta[ramp_mask] / roll_stagger)
+  }
+  secondary_weight[!is.finite(secondary_weight)] <- 0
+  secondary_weight <- pmin(pmax(secondary_weight, 0), 1)
+  secondary_weight[!has_secondary] <- 0
+  primary_weight <- 1 - secondary_weight
+  blend_fn <- function(primary_vals, secondary_vals) {
+    res <- primary_weight * primary_vals + secondary_weight * secondary_vals
+    both_na <- is.na(primary_vals) & is.na(secondary_vals)
+    only_primary <- is.na(secondary_vals) & !is.na(primary_vals)
+    only_secondary <- is.na(primary_vals) & !is.na(secondary_vals)
+    res[both_na] <- NA_real_
+    res[only_primary] <- primary_vals[only_primary]
+    res[only_secondary] <- secondary_vals[only_secondary]
+    res
+  }
+  cond_roll <- has_secondary &
+    !is.na(daily$front_roll_date) &
+    daily$refdate >= daily$front_roll_date
+  daily$sel_symbol <- ifelse(cond_roll, daily$next_symbol, daily$front_symbol)
+  daily$primary_weight <- primary_weight
+  daily$secondary_weight <- secondary_weight
+  daily$sel_open  <- blend_fn(daily$f_open,  daily$n_open)
+  daily$sel_high  <- blend_fn(daily$f_high,  daily$n_high)
+  daily$sel_low   <- blend_fn(daily$f_low,   daily$n_low)
+  daily$sel_close <- blend_fn(daily$f_close, daily$n_close)
   if (has_volume_col && "f_volume" %in% names(daily) && "n_volume" %in% names(daily)) {
-    daily$sel_volume <- pick_fn(daily$f_volume, daily$n_volume)
+    daily$sel_volume <- blend_fn(daily$f_volume, daily$n_volume)
   } else if (has_volume_col && "f_volume" %in% names(daily)) {
     daily$sel_volume <- daily$f_volume
   }
@@ -586,9 +963,9 @@
     mat <- cbind(mat, Volume = daily$sel_volume)
   }
   no_adj <- xts::xts(mat, order.by = daily$refdate)
-  no_adj <- .bmf_sanitize_ohlcv_xts(no_adj)
-  no_adj <- .bmf_xts_deduplicate_daily_last(no_adj)
-  parts <- .bmf_split_contracts_xts(agg_df)
+  no_adj <- .brf_sanitize_ohlcv_xts(no_adj)
+  no_adj <- .brf_xts_deduplicate_daily_last(no_adj)
+  parts <- .brf_split_contracts_xts(agg_df)
   lst_xts <- parts$lst_xts
   sym_vec <- daily$sel_symbol
   dates <- daily$refdate
@@ -601,7 +978,7 @@
   }
   r_list <- numeric(0)
   if (length(seam_idx)) {
-    r_list <- .bmf_compute_roll_ratios(sym_vec, dates, lst_xts, seam_idx, clamp_ratio, roll_type_internal)
+    r_list <- .brf_compute_roll_ratios(sym_vec, dates, lst_xts, seam_idx, clamp_ratio, roll_type_internal, rc)
   }
   stopifnot(is.numeric(r_list))
   seg_starts <- c(1L, seam_idx)
@@ -646,8 +1023,11 @@
     }
     adj <- xts::xts(adj_vals, order.by = zoo::index(no_adj))
   }
-  adj <- .bmf_sanitize_ohlcv_xts(adj)
-  adj <- .bmf_xts_deduplicate_daily_last(adj)
+  adj <- .brf_sanitize_ohlcv_xts(adj)
+  adj <- .brf_xts_deduplicate_daily_last(adj)
+  if (isTRUE(include_roll_details)) {
+    daily <- .brf_enrich_roll_details(daily, seam_idx, r_list, rc)
+  }
   active_symbols <- xts::xts(as.character(sym_vec), order.by = dates)
   active_symbols <- active_symbols[zoo::index(no_adj)]
   attr(no_adj, "active_symbol") <- active_symbols
@@ -655,7 +1035,7 @@
   list(no_adj = no_adj, adj = adj, daily_table = daily)
 }
 
-.bmf_to_posix_br_tz <- function(x_date) {
+.brf_to_posix_br_tz <- function(x_date) {
   if (inherits(x_date, "POSIXt")) {
     return(lubridate::force_tz(x_date, tzone = "America/Sao_Paulo"))
   }
@@ -665,17 +1045,17 @@
   )
 }
 
-.bmf_xts_force_tz <- function(x_xts) {
+.brf_xts_force_tz <- function(x_xts) {
   if (!xts::is.xts(x_xts) || !NROW(x_xts)) {
     return(x_xts)
   }
-  idx <- .bmf_to_posix_br_tz(zoo::index(x_xts))
+  idx <- .brf_to_posix_br_tz(zoo::index(x_xts))
   y <- xts::xts(zoo::coredata(x_xts), order.by = idx, tzone = "America/Sao_Paulo")
   attr_active <- attr(x_xts, "active_symbol")
   if (xts::is.xts(attr_active) && NROW(attr_active)) {
     attr(y, "active_symbol") <- xts::xts(
       zoo::coredata(attr_active),
-      order.by = .bmf_to_posix_br_tz(zoo::index(attr_active)),
+      order.by = .brf_to_posix_br_tz(zoo::index(attr_active)),
       tzone = "America/Sao_Paulo"
     )
   }
@@ -684,7 +1064,7 @@
   y
 }
 
-.bmf_append_return_columns <- function(x_xts) {
+.brf_append_return_columns <- function(x_xts) {
   if (!xts::is.xts(x_xts) || !"Close" %in% colnames(x_xts)) {
     return(x_xts)
   }
@@ -707,7 +1087,7 @@
   x_xts
 }
 
-.bmf_cumulative_return <- function(ret) {
+.brf_cumulative_return <- function(ret) {
   ret <- ret[is.finite(ret)]
   if (!length(ret)) {
     return(0)
@@ -715,7 +1095,7 @@
   prod(1 + ret) - 1
 }
 
-.bmf_annualized_return <- function(ret, periods_per_year = 252) {
+.brf_annualized_return <- function(ret, periods_per_year = 252) {
   ret <- ret[is.finite(ret)]
   n <- length(ret)
   if (!n) {
@@ -728,7 +1108,7 @@
   total^(periods_per_year / n) - 1
 }
 
-.bmf_continuous_meta <- function(ticker_root) {
+.brf_continuous_meta <- function(ticker_root) {
   r <- toupper(ticker_root)
   list(
     tick_size     = if (r == "CCM") 0.01 else if (r == "BGI") 0.05 else 0.01,
@@ -743,21 +1123,15 @@
 #' days before the estimated maturity.
 #'
 #' @param ticker_root Commodity root symbol (e.g. `"DI1"` or `"WIN"`).
-#' @param roll_days_before_expiry Number of business days before the estimated
-#'   maturity to roll into the next contract (default: 20).
-#' @param clamp_ratio Lower and upper bounds for the ratio applied at roll
-#'   seams when back-adjusting prices.
-#' @param type Adjustment style applied to the stitched chain. `"fwd_rt"`
+#' @param build_type Adjustment style applied to the stitched chain. `"fwd_rt"`
 #'   (forward-ratio) multiplies the ratio through to subsequent contracts so the
 #'   most recent prices remain untouched, while `"panama"` (classic Panama style)
 #'   scales historical segments backward so the oldest leg is preserved and
 #'   newer legs are shifted.
-#' @param roll_type How to estimate the price ratio at roll seams. Accepts one
-#'   of `"days_before_roll"` (median overlap of price ratios close to the
-#'   roll), `"windsor_log_spread"` (median of winsorised log price spreads),
-#'   `"regression"` (OLS slope of the overlapping prices), or a custom function
-#'   with signature `(sym_vec, dates, lst_xts, seam_idx, clamp_ratio)` returning
-#'   numeric ratios.
+#' @param roll_type Roll specification describing how contracts are stitched.
+#'   Supply one of the helper constructors such as [days_before_roll()],
+#'   [windsor_log_spread_roll()], [regression_roll()], or [custom_roll()], or
+#'   provide a custom function that matches the legacy seam interface.
 #' @param adjusted When `TRUE`, return the back-adjusted continuous series;
 #'   otherwise the unadjusted (stitched) series is returned.
 #' @param single_xts If `TRUE`, return a single xts object; when `FALSE`, return
@@ -769,9 +1143,10 @@
 #' @param data_dir Optional directory containing cached files for `ticker_root`.
 #' @param which Storage location passed to [tools::R_user_dir()] when
 #'   `data_dir` is `NULL`.
-#' @param source Data source to build the series from: `"agg"` uses
-#'   [bmf_get_aggregate()] while `"sm_api"` attempts to call `sm_get_data()`
-#'   (when available) and falls back to the aggregate cache with a warning.
+#' @param source Data source to build the series from: `"local"` reads cached
+#'   aggregates via [brf_get_aggregate()] while `"sm_api"` attempts to call
+#'   `sm_get_data()` (when available) and falls back to the local cache with a
+#'   warning.
 #' @param include_older When `TRUE`, legacy contracts whose symbols use
 #'   Portuguese month abbreviations (e.g. `"BGIABR1"`) are normalised to their
 #'   modern equivalents so they participate in the roll chain. Set to `FALSE`
@@ -794,42 +1169,44 @@
 #'   unadjusted chain, the adjusted chain, and the daily contract metadata.
 #' @export
 
-bmf_build_continuous_series <- function(ticker_root,
-                                        roll_days_before_expiry = 20,
-                                        clamp_ratio = c(0.6, 1.6),
-                                        type = c("fwd_rt", "panama"),
-                                        roll_type = c("days_before_roll", "windsor_log_spread", "regression"),
+brf_build_continuous_series <- function(ticker_root,
+                                        build_type = c("fwd_rt", "panama"),
+                                        roll_type = days_before_roll(),
                                         adjusted = TRUE,
                                         single_xts = TRUE,
                                         debug = FALSE,
                                         everything = FALSE,
                                         data_dir = NULL,
                                         which = c("cache", "data", "config"),
-                                        source = c("agg", "sm_api"),
+                                        source = c("local", "sm_api"),
                                         include_older = TRUE,
                                         maturities = "all") {
   which <- match.arg(which)
   source <- match.arg(source)
-  type <- match.arg(type)
-  roll_type_internal <- roll_type
+  build_type <- match.arg(build_type)
+  roll_spec <- .brf_resolve_roll_spec(roll_type)
+  roll_type_internal <- roll_spec$roll_type
+  roll_days_before_expiry <- roll_spec$roll_days_before_expiry
+  clamp_ratio <- roll_spec$clamp_ratio
+  roll_control <- roll_spec$roll_control
+  roll_stagger <- roll_spec$roll_stagger
+  contract_ranks <- roll_spec$contract_ranks
+  include_roll_details <- roll_spec$include_roll_details
   if (is.character(roll_type_internal)) {
     roll_type_internal <- match.arg(roll_type_internal, c("days_before_roll", "windsor_log_spread", "regression"))
   } else if (!is.function(roll_type_internal)) {
     stop("roll_type must be a recognised identifier or a custom function.", call. = FALSE)
   }
-  clamp_ratio <- as.numeric(clamp_ratio)
-  if (length(clamp_ratio) != 2L || any(!is.finite(clamp_ratio))) {
-    stop("clamp_ratio must be a numeric vector of length 2.", call. = FALSE)
-  }
-  normalized <- .bmf_normalize_ticker_root(ticker_root)
+  contract_ranks <- .brf_normalize_contract_ranks(contract_ranks)
+  normalized <- .brf_normalize_ticker_root(ticker_root)
   normalized <- normalized[!is.na(normalized)]
   if (!length(normalized)) {
     stop("ticker_root cannot be missing or empty.", call. = FALSE)
   }
   ticker_root_norm <- normalized[1L]
-  fetch_from_cache <- function() {
+  fetch_local <- function() {
     suppressMessages(
-      bmf_get_aggregate(
+      brf_get_aggregate(
         ticker_root_norm,
         data_dir = data_dir,
         which = which,
@@ -840,7 +1217,7 @@ bmf_build_continuous_series <- function(ticker_root,
   }
   aggregate_raw <- switch(
     source,
-    agg = fetch_from_cache(),
+    local = fetch_local(),
     sm_api = {
       api_res <- try(
         sm_get_data(
@@ -856,15 +1233,15 @@ bmf_build_continuous_series <- function(ticker_root,
           "sm_get_data() is not available; falling back to cached aggregate data.",
           call. = FALSE
         )
-        fetch_from_cache()
+        fetch_local()
       } else {
         api_res
       }
     }
   )
-  aggregate <- .bmf_prepare_continuous_aggregate(aggregate_raw, ticker_root_norm)
+  aggregate <- .brf_prepare_continuous_aggregate(aggregate_raw, ticker_root_norm)
   if (isTRUE(include_older)) {
-    aggregate <- .bmf_normalize_older_contracts(aggregate)
+    aggregate <- .brf_normalize_older_contracts(aggregate)
     if (!inherits(aggregate$estimated_maturity, "Date")) {
       aggregate$estimated_maturity <- as.Date(aggregate$estimated_maturity)
     }
@@ -877,14 +1254,14 @@ bmf_build_continuous_series <- function(ticker_root,
     valid_sym <- !is.na(sym_for_maturity) & nzchar(sym_for_maturity)
     missing_idx <- which(is.na(aggregate$estimated_maturity) & valid_sym)
     if (length(missing_idx)) {
-      calendar_name <- .bmf_get_calendar()
+      calendar_name <- .brf_get_calendar()
       unique_syms <- unique(sym_for_maturity[missing_idx])
       unique_syms <- unique_syms[!is.na(unique_syms) & nzchar(unique_syms)]
       if (length(unique_syms)) {
         est_map <- stats::setNames(
           vapply(
             unique_syms,
-            function(sym) .bmf_estimate_maturity(sym, calendar_name = calendar_name),
+            function(sym) .brf_estimate_maturity(sym, calendar_name = calendar_name),
             FUN.VALUE = as.Date(NA)
           ),
           unique_syms
@@ -893,36 +1270,40 @@ bmf_build_continuous_series <- function(ticker_root,
       }
     }
   }
-  aggregate <- .bmf_filter_by_maturity(aggregate, maturities)
+  aggregate <- .brf_filter_by_maturity(aggregate, maturities)
   if (!nrow(aggregate)) {
     stop("No data available after applying the requested maturities.", call. = FALSE)
   }
-  chain <- .bmf_build_daily_front_chain(
+  chain <- .brf_build_daily_front_chain(
     aggregate,
     roll_days_before_expiry = roll_days_before_expiry,
     clamp_ratio = clamp_ratio,
     roll_type = roll_type_internal,
-    adjust_type = type
+    adjust_type = build_type,
+    roll_control = roll_control,
+    include_roll_details = include_roll_details,
+    contract_ranks = contract_ranks,
+    roll_stagger = roll_stagger
   )
   no_adj <- chain$no_adj
   adj <- chain$adj
   daily <- chain$daily_table
-  no_adj <- .bmf_xts_force_tz(no_adj)
-  adj <- .bmf_xts_force_tz(adj)
+  no_adj <- .brf_xts_force_tz(no_adj)
+  adj <- .brf_xts_force_tz(adj)
   if (!is.null(daily) && NROW(daily)) {
-    daily$refdate <- .bmf_to_posix_br_tz(daily$refdate)
+    daily$refdate <- .brf_to_posix_br_tz(daily$refdate)
     daily <- as.data.frame(daily)
   } else {
     daily <- data.frame()
   }
-  aggregate$refdate <- .bmf_to_posix_br_tz(aggregate$refdate)
-  meta <- .bmf_continuous_meta(ticker_root_norm)
+  aggregate$refdate <- .brf_to_posix_br_tz(aggregate$refdate)
+  meta <- .brf_continuous_meta(ticker_root_norm)
   attr(no_adj, "fut_tick_size") <- meta$tick_size
   attr(no_adj, "fut_multiplier") <- meta$fut_multiplier
   attr(adj, "fut_tick_size") <- meta$tick_size
   attr(adj, "fut_multiplier") <- meta$fut_multiplier
-  no_adj <- .bmf_append_return_columns(no_adj)
-  adj <- .bmf_append_return_columns(adj)
+  no_adj <- .brf_append_return_columns(no_adj)
+  adj <- .brf_append_return_columns(adj)
   if (isTRUE(debug)) {
     adj_disc <- as.numeric(adj$Discrete)
     adj_log <- as.numeric(adj$Log)
@@ -930,23 +1311,23 @@ bmf_build_continuous_series <- function(ticker_root,
     no_adj_log <- as.numeric(no_adj$Log)
     adj_summary <- sprintf(
       "Adjusted cumulative: %.2f%% | annualised: %.2f%%",
-      .bmf_cumulative_return(adj_disc) * 100,
-      .bmf_annualized_return(adj_disc) * 100
+      .brf_cumulative_return(adj_disc) * 100,
+      .brf_annualized_return(adj_disc) * 100
     )
     adj_summary_log <- sprintf(
       "Adjusted log cumulative: %.2f%% | annualised: %.2f%%",
-      .bmf_cumulative_return(adj_log) * 100,
-      .bmf_annualized_return(adj_log) * 100
+      .brf_cumulative_return(adj_log) * 100,
+      .brf_annualized_return(adj_log) * 100
     )
     no_adj_summary <- sprintf(
       "Unadjusted cumulative: %.2f%% | annualised: %.2f%%",
-      .bmf_cumulative_return(no_adj_disc) * 100,
-      .bmf_annualized_return(no_adj_disc) * 100
+      .brf_cumulative_return(no_adj_disc) * 100,
+      .brf_annualized_return(no_adj_disc) * 100
     )
     no_adj_summary_log <- sprintf(
       "Unadjusted log cumulative: %.2f%% | annualised: %.2f%%",
-      .bmf_cumulative_return(no_adj_log) * 100,
-      .bmf_annualized_return(no_adj_log) * 100
+      .brf_cumulative_return(no_adj_log) * 100,
+      .brf_annualized_return(no_adj_log) * 100
     )
     message(
       paste(
@@ -984,4 +1365,3 @@ bmf_build_continuous_series <- function(ticker_root,
   }
   invisible(no_adj)
 }
-

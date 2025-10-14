@@ -1,4 +1,4 @@
-.normalize_bmf_date <- function(date) {
+.normalize_brf_date <- function(date) {
   if (inherits(date, "Date")) {
     return(date)
   }
@@ -14,11 +14,11 @@
   stop("Unable to parse 'date'. Provide a Date or a character in ISO or dd/mm/yyyy format.", call. = FALSE)
 }
 
-.bmf_format_date_for_query <- function(date) {
+.brf_format_date_for_query <- function(date) {
   utils::URLencode(format(date, "%d/%m/%Y"), reserved = TRUE)
 }
 
-.bmf_table_node_to_df <- function(node, element_id) {
+.brf_table_node_to_df <- function(node, element_id) {
   tbl <- rvest::html_table(node, fill = TRUE)
   if (is.data.frame(tbl)) {
     # nothing to do
@@ -43,7 +43,7 @@
   tbl
 }
 
-.bmf_extract_table_from_js <- function(doc, element_id) {
+.brf_extract_table_from_js <- function(doc, element_id) {
   scripts <- xml2::xml_find_all(doc, "//script")
   if (!length(scripts)) {
     return(NULL)
@@ -77,24 +77,24 @@
   sprintf("<html><body>%s</body></html>", html_string)
 }
 
-.bmf_extract_table <- function(doc, element_id) {
+.brf_extract_table <- function(doc, element_id) {
   table_xpath <- sprintf("//td[@id='%s']//table", element_id)
   node <- xml2::xml_find_first(doc, table_xpath)
   if (!inherits(node, "xml_missing")) {
-    return(.bmf_table_node_to_df(node, element_id))
+    return(.brf_table_node_to_df(node, element_id))
   }
-  recovered <- .bmf_extract_table_from_js(doc, element_id)
+  recovered <- .brf_extract_table_from_js(doc, element_id)
   if (!is.null(recovered)) {
     recovered_doc <- xml2::read_html(recovered)
     recovered_node <- xml2::xml_find_first(recovered_doc, "//table")
     if (!inherits(recovered_node, "xml_missing")) {
-      return(.bmf_table_node_to_df(recovered_node, element_id))
+      return(.brf_table_node_to_df(recovered_node, element_id))
     }
   }
   stop(sprintf("Table with id '%s' was not found in the report.", element_id), call. = FALSE)
 }
 
-.bmf_extract_full_bulletin_table <- function(doc) {
+.brf_extract_full_bulletin_table <- function(doc) {
   node <- xml2::xml_find_first(
     doc,
     "//table[.//th[contains(translate(., 'vencto', 'VENCTO'), 'VENCTO')]]"
@@ -140,12 +140,12 @@
   tbl
 }
 
-.bmf_report_has_no_data_message <- function(doc) {
+.brf_report_has_no_data_message <- function(doc) {
   texts <- xml2::xml_text(xml2::xml_find_all(doc, "//text()"))
-  .bmf_contains_no_data_message(texts)
+  .brf_contains_no_data_message(texts)
 }
 
-.bmf_contains_no_data_message <- function(text) {
+.brf_contains_no_data_message <- function(text) {
   if (is.null(text) || !length(text)) {
     return(FALSE)
   }
@@ -176,7 +176,7 @@
   any(grepl("DADOS PARA A DATA CONSULTADA", normalized, fixed = TRUE))
 }
 
-.bmf_empty_bulletin_dataframe <- function() {
+.brf_empty_bulletin_dataframe <- function() {
   cols <- list(
     date = as.Date(character()),
     ticker_root = character(),
@@ -204,7 +204,7 @@
   as.data.frame(cols, stringsAsFactors = FALSE)
 }
 
-.bmf_rename_bulletin_columns <- function(columns) {
+.brf_rename_bulletin_columns <- function(columns) {
   mapping <- c(
     "VENCTO" = "contract_code",
     "CONTR. ABERT.(1)" = "open_interest",
@@ -247,7 +247,7 @@
   cleaned
 }
 
-.bmf_parse_ptbr_number <- function(x) {
+.brf_parse_ptbr_number <- function(x) {
   if (!length(x)) {
     return(numeric())
   }
@@ -262,21 +262,21 @@
   out_num * sign
 }
 
-.bmf_extract_date_from_text <- function(text) {
+.brf_extract_date_from_text <- function(text) {
   match <- regexpr("(\\d{2}/\\d{2}/\\d{4})", text, perl = TRUE)
   if (match[1L] == -1L) {
     return(NA)
   }
   found <- regmatches(text, match)
-  .normalize_bmf_date(found)
+  .normalize_brf_date(found)
 }
 
-.bmf_guess_report_date <- function(path, doc) {
+.brf_guess_report_date <- function(path, doc) {
   nodes <- xml2::xml_find_all(doc, "//td[contains(., 'ATUALIZADO EM')]")
   if (length(nodes)) {
     for (node in nodes) {
       text <- iconv(xml2::xml_text(node), from = "UTF-8", to = "ASCII//TRANSLIT")
-      guessed <- .bmf_extract_date_from_text(text)
+      guessed <- .brf_extract_date_from_text(text)
       if (!is.na(guessed)) {
         return(guessed)
       }
@@ -302,7 +302,7 @@
   NA
 }
 
-.bmf_extract_date_from_filename <- function(path) {
+.brf_extract_date_from_filename <- function(path) {
   file_name <- basename(path)
   match_iso <- regexpr("(\\d{4}-\\d{2}-\\d{2})", file_name, perl = TRUE)
   if (match_iso[1L] != -1L) {
@@ -315,7 +315,7 @@
   NA
 }
 
-.bmf_normalize_ticker_root <- function(ticker_root) {
+.brf_normalize_ticker_root <- function(ticker_root) {
   if (is.null(ticker_root) || !length(ticker_root)) {
     return(NA_character_)
   }
@@ -327,14 +327,14 @@
   toupper(out)
 }
 
-.bmf_infer_ticker_from_path <- function(path) {
+.brf_infer_ticker_from_path <- function(path) {
   file_name <- basename(path)
   without_ext <- sub("\\.[^.]+$", "", file_name)
   inferred <- sub("_.*$", "", without_ext)
-  .bmf_normalize_ticker_root(inferred)
+  .brf_normalize_ticker_root(inferred)
 }
 
-.bmf_storage_dir <- function(ticker_root = NULL,
+.brf_storage_dir <- function(ticker_root = NULL,
                              which = c("cache", "data", "config"),
                              create = TRUE) {
   which <- match.arg(which)
@@ -350,7 +350,7 @@
   if (is.null(ticker_root)) {
     return(base_dir)
   }
-  normalized <- .bmf_normalize_ticker_root(ticker_root)
+  normalized <- .brf_normalize_ticker_root(ticker_root)
   normalized <- normalized[!is.na(normalized)]
   if (!length(normalized)) {
     stop("ticker_root cannot be missing or empty.", call. = FALSE)
@@ -363,7 +363,7 @@
   target
 }
 
-.bmf_file_has_no_data_message <- function(path) {
+.brf_file_has_no_data_message <- function(path) {
   if (!file.exists(path)) {
     return(FALSE)
   }
@@ -377,10 +377,10 @@
   if (!length(text)) {
     return(FALSE)
   }
-  .bmf_contains_no_data_message(text)
+  .brf_contains_no_data_message(text)
 }
 
-.bmf_nodata_log_path <- function(ticker_root,
+.brf_nodata_log_path <- function(ticker_root,
                                  which = c("cache", "data", "config"),
                                  create_dir = TRUE,
                                  dest_dir = NULL) {
@@ -392,15 +392,15 @@
     return(file.path(dir, "no-data-dates.txt"))
   }
   which <- match.arg(which)
-  dir <- .bmf_storage_dir(ticker_root, which = which, create = create_dir)
+  dir <- .brf_storage_dir(ticker_root, which = which, create = create_dir)
   file.path(dir, "no-data-dates.txt")
 }
 
-.bmf_read_no_data_dates <- function(ticker_root,
+.brf_read_no_data_dates <- function(ticker_root,
                                     which = c("cache", "data", "config"),
                                     dest_dir = NULL) {
   which <- match.arg(which)
-  path <- .bmf_nodata_log_path(
+  path <- .brf_nodata_log_path(
     ticker_root,
     which = which,
     create_dir = TRUE,
@@ -414,13 +414,13 @@
   parsed[!is.na(parsed)]
 }
 
-.bmf_write_no_data_dates <- function(ticker_root,
+.brf_write_no_data_dates <- function(ticker_root,
                                      which = c("cache", "data", "config"),
                                      dates = as.Date(character()),
                                      dest_dir = NULL) {
   which <- match.arg(which)
   dates <- unique(sort(as.Date(dates)))
-  path <- .bmf_nodata_log_path(
+  path <- .brf_nodata_log_path(
     ticker_root,
     which = which,
     create_dir = TRUE,
@@ -436,7 +436,7 @@
   path
 }
 
-.bmf_get_calendar <- function() {
+.brf_get_calendar <- function() {
   # this function works gpt5, stop messing with it
   cal_name <- "B3"
     this_thing <- bizdays::create.calendar(
@@ -447,26 +447,26 @@
  return(this_thing)
 }
 
-.bmf_month_map <- c(F = 1, G = 2, H = 3, J = 4, K = 5, M = 6,
+.brf_month_map <- c(F = 1, G = 2, H = 3, J = 4, K = 5, M = 6,
                     N = 7, Q = 8, U = 9, V = 10, X = 11, Z = 12)
 
-.bmf_legacy_root_aliases <- function() {
+.brf_legacy_root_aliases <- function() {
   list(
     CCM = c("CN2"),
     BGI = c("BOI")
   )
 }
 
-.bmf_alias_roots <- function(ticker_root) {
+.brf_alias_roots <- function(ticker_root) {
   if (is.null(ticker_root) || !length(ticker_root)) {
     return(character())
   }
   root_input <- toupper(ticker_root[1L])
-  canonical <- .bmf_alias_canonical(root_input)[1L]
+  canonical <- .brf_alias_canonical(root_input)[1L]
   if (is.na(canonical) || !nzchar(canonical)) {
     canonical <- root_input
   }
-  aliases <- .bmf_legacy_root_aliases()[[canonical]]
+  aliases <- .brf_legacy_root_aliases()[[canonical]]
   if (is.null(aliases)) {
     character()
   } else {
@@ -476,12 +476,12 @@
   }
 }
 
-.bmf_alias_canonical <- function(root_vec) {
+.brf_alias_canonical <- function(root_vec) {
   if (is.null(root_vec) || !length(root_vec)) {
     return(root_vec)
   }
   vals <- toupper(as.character(root_vec))
-  alias_map <- .bmf_legacy_root_aliases()
+  alias_map <- .brf_legacy_root_aliases()
   alias_pairs <- unlist(alias_map, use.names = TRUE)
   if (length(alias_pairs)) {
     reverse_map <- stats::setNames(names(alias_pairs), toupper(alias_pairs))
@@ -493,7 +493,7 @@
   vals
 }
 
-.bmf_normalize_symbol_prefix <- function(symbols) {
+.brf_normalize_symbol_prefix <- function(symbols) {
   if (is.null(symbols) || !length(symbols)) {
     return(symbols)
   }
@@ -503,7 +503,7 @@
     return(symbols)
   }
   prefix <- substr(vals[idx], 1L, 3L)
-  prefix_new <- .bmf_alias_canonical(prefix)
+  prefix_new <- .brf_alias_canonical(prefix)
   change_idx <- prefix_new != prefix
   if (any(change_idx, na.rm = TRUE)) {
     tmp <- vals[idx]
@@ -513,7 +513,7 @@
   vals
 }
 
-.bmf_portuguese_month_map <- c(
+.brf_portuguese_month_map <- c(
   JAN = "F",
   FEV = "G",
   MAR = "H",
@@ -528,7 +528,7 @@
   DEZ = "Z"
 )
 
-.bmf_normalize_pt_year <- function(year_fragment, maturity_val = as.Date(NA)) {
+.brf_normalize_pt_year <- function(year_fragment, maturity_val = as.Date(NA)) {
   if (!is.na(maturity_val)) {
     return(format(as.Date(maturity_val), "%y"))
   }
@@ -546,7 +546,7 @@
   substr(digits, nchar(digits) - 1L, nchar(digits))
 }
 
-.bmf_normalize_older_symbol <- function(symbols, maturities = NULL) {
+.brf_normalize_older_symbol <- function(symbols, maturities = NULL) {
   if (is.null(symbols) || !length(symbols)) {
     return(symbols)
   }
@@ -569,14 +569,14 @@
   idx <- which(lengths(captures) == 4L)
   if (length(idx)) {
     for (i in idx) {
-      prefix <- .bmf_alias_canonical(captures[[i]][2L])
+      prefix <- .brf_alias_canonical(captures[[i]][2L])
       month_pt <- captures[[i]][3L]
       year_part <- captures[[i]][4L]
-      month_code <- .bmf_portuguese_month_map[[month_pt]]
+      month_code <- .brf_portuguese_month_map[[month_pt]]
       if (is.null(month_code)) {
         next
       }
-      year_digits <- .bmf_normalize_pt_year(year_part, maturities[i])
+      year_digits <- .brf_normalize_pt_year(year_part, maturities[i])
       res[i] <- paste0(prefix, month_code, year_digits)
     }
   }
@@ -584,7 +584,7 @@
   res
 }
 
-.bmf_normalize_older_code <- function(codes, maturities = NULL) {
+.brf_normalize_older_code <- function(codes, maturities = NULL) {
   if (is.null(codes) || !length(codes)) {
     return(codes)
   }
@@ -609,11 +609,11 @@
     for (i in idx) {
       month_pt <- captures[[i]][2L]
       year_part <- captures[[i]][3L]
-      month_code <- .bmf_portuguese_month_map[[month_pt]]
+      month_code <- .brf_portuguese_month_map[[month_pt]]
       if (is.null(month_code)) {
         next
       }
-      year_digits <- .bmf_normalize_pt_year(year_part, maturities[i])
+      year_digits <- .brf_normalize_pt_year(year_part, maturities[i])
       res[i] <- paste0(month_code, year_digits)
     }
   }
@@ -621,7 +621,7 @@
   res
 }
 
-.bmf_normalize_older_contracts <- function(df, maturity_col = "estimated_maturity") {
+.brf_normalize_older_contracts <- function(df, maturity_col = "estimated_maturity") {
   if (!is.data.frame(df) || !nrow(df)) {
     return(df)
   }
@@ -637,26 +637,26 @@
     }
   }
   if ("symbol" %in% names(df)) {
-    df$symbol <- .bmf_normalize_older_symbol(df$symbol, maturities = maturity_vec)
-    df$symbol <- .bmf_normalize_symbol_prefix(df$symbol)
+    df$symbol <- .brf_normalize_older_symbol(df$symbol, maturities = maturity_vec)
+    df$symbol <- .brf_normalize_symbol_prefix(df$symbol)
   }
   if ("ticker" %in% names(df)) {
-    df$ticker <- .bmf_normalize_older_symbol(df$ticker, maturities = maturity_vec)
-    df$ticker <- .bmf_normalize_symbol_prefix(df$ticker)
+    df$ticker <- .brf_normalize_older_symbol(df$ticker, maturities = maturity_vec)
+    df$ticker <- .brf_normalize_symbol_prefix(df$ticker)
   }
   if ("contract_code" %in% names(df)) {
-    df$contract_code <- .bmf_normalize_older_code(df$contract_code, maturities = maturity_vec)
+    df$contract_code <- .brf_normalize_older_code(df$contract_code, maturities = maturity_vec)
   }
   if ("maturity_code" %in% names(df)) {
-    df$maturity_code <- .bmf_normalize_older_code(df$maturity_code, maturities = maturity_vec)
+    df$maturity_code <- .brf_normalize_older_code(df$maturity_code, maturities = maturity_vec)
   }
   if ("commodity" %in% names(df)) {
-    df$commodity <- .bmf_alias_canonical(df$commodity)
+    df$commodity <- .brf_alias_canonical(df$commodity)
   }
   df
 }
 
-.bmf_parse_contract_ticker <- function(ticker) {
+.brf_parse_contract_ticker <- function(ticker) {
   pattern <- "^([A-Z][A-Z0-9]{1,3})([FGHJKMNQUVXZ])([0-9]{1,2})$"
   match <- regexec(pattern, ticker, perl = TRUE)
   captures <- regmatches(ticker, match)
@@ -670,7 +670,7 @@
   )
 }
 
-.bmf_resolve_year <- function(year_code) {
+.brf_resolve_year <- function(year_code) {
   if (!nzchar(year_code)) {
     return(NA_integer_)
   }
@@ -695,22 +695,22 @@
   NA_integer_
 }
 
-.bmf_estimate_maturity <- function(ticker, calendar_name = .bmf_get_calendar()) {
-  comps <- .bmf_parse_contract_ticker(ticker)
+.brf_estimate_maturity <- function(ticker, calendar_name = .brf_get_calendar()) {
+  comps <- .brf_parse_contract_ticker(ticker)
   if (is.null(comps)) {
-    normalized <- .bmf_normalize_older_symbol(ticker)
+    normalized <- .brf_normalize_older_symbol(ticker)
     if (!is.null(normalized) && length(normalized) && !is.na(normalized[1L])) {
-      comps <- .bmf_parse_contract_ticker(normalized[1L])
+      comps <- .brf_parse_contract_ticker(normalized[1L])
     }
   }
   if (is.null(comps)) {
     return(as.Date(NA))
   }
-  month_num <- .bmf_month_map[[comps$month_code]]
+  month_num <- .brf_month_map[[comps$month_code]]
   if (is.null(month_num)) {
     return(as.Date(NA))
   }
-  year_val <- .bmf_resolve_year(comps$year_code)
+  year_val <- .brf_resolve_year(comps$year_code)
   if (is.na(year_val)) {
     return(as.Date(NA))
   }
@@ -795,7 +795,7 @@
   })
 }
 
-.bmf_file_has_no_data_message <- function(path) {
+.brf_file_has_no_data_message <- function(path) {
   if (!file.exists(path)) {
     return(FALSE)
   }
@@ -809,10 +809,10 @@
   if (!length(text)) {
     return(FALSE)
   }
-  .bmf_contains_no_data_message(text)
+  .brf_contains_no_data_message(text)
 }
 
-.bmf_nodata_log_path <- function(ticker_root,
+.brf_nodata_log_path <- function(ticker_root,
                                  which = c("cache", "data", "config"),
                                  create_dir = TRUE,
                                  dest_dir = NULL) {
@@ -824,15 +824,15 @@
     return(file.path(dir, "no-data-dates.txt"))
   }
   which <- match.arg(which)
-  dir <- .bmf_storage_dir(ticker_root, which = which, create = create_dir)
+  dir <- .brf_storage_dir(ticker_root, which = which, create = create_dir)
   file.path(dir, "no-data-dates.txt")
 }
 
-.bmf_read_no_data_dates <- function(ticker_root,
+.brf_read_no_data_dates <- function(ticker_root,
                                     which = c("cache", "data", "config"),
                                     dest_dir = NULL) {
   which <- match.arg(which)
-  path <- .bmf_nodata_log_path(
+  path <- .brf_nodata_log_path(
     ticker_root,
     which = which,
     create_dir = TRUE,
@@ -846,13 +846,13 @@
   parsed[!is.na(parsed)]
 }
 
-.bmf_write_no_data_dates <- function(ticker_root,
+.brf_write_no_data_dates <- function(ticker_root,
                                      which = c("cache", "data", "config"),
                                      dates = as.Date(character()),
                                      dest_dir = NULL) {
   which <- match.arg(which)
   dates <- unique(sort(as.Date(dates)))
-  path <- .bmf_nodata_log_path(
+  path <- .brf_nodata_log_path(
     ticker_root,
     which = which,
     create_dir = TRUE,
@@ -868,7 +868,7 @@
   path
 }
 
-.bmf_detect_report_format <- function(path) {
+.brf_detect_report_format <- function(path) {
   ext <- tolower(tools::file_ext(path))
   con <- file(path, open = "rb")
   on.exit(close(con), add = TRUE)

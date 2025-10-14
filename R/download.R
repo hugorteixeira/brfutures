@@ -6,31 +6,31 @@
 #'
 #' @return A character scalar with the encoded URL.
 #' @export
-bmf_bulletin_url <- function(date,
+brf_bulletin_url <- function(date,
                              ticker_root = "IND",
                              format = c("xls", "html")) {
-  date <- .normalize_bmf_date(date)
+  date <- .normalize_brf_date(date)
   format <- match.arg(format)
-  ticker_vec <- .bmf_normalize_ticker_root(ticker_root)
+  ticker_vec <- .brf_normalize_ticker_root(ticker_root)
   ticker_vec <- ticker_vec[!is.na(ticker_vec)]
   if (!length(ticker_vec)) {
     stop("ticker_root cannot be missing or empty.", call. = FALSE)
   }
   ticker_root <- ticker_vec[1L]
   if (format == "xls") {
-    base_url <- "https://www2.bmf.com.br/pages/portal/bmfbovespa/boletim1/SistemaPregao_excel1.asp"
+    base_url <- "https://www2.brf.com.br/pages/portal/brfbovespa/boletim1/SistemaPregao_excel1.asp"
     query <- paste0(
-      "Data=", .bmf_format_date_for_query(date),
+      "Data=", .brf_format_date_for_query(date),
       "&Mercadoria=", utils::URLencode(ticker_root, reserved = TRUE),
       "&XLS=true"
     )
   } else {
-    base_url <- "https://www2.bmf.com.br/pages/portal/bmfbovespa/boletim1/SistemaPregao1.asp"
+    base_url <- "https://www2.brf.com.br/pages/portal/brfbovespa/boletim1/SistemaPregao1.asp"
     encoded_caminho <- "Resumo%20Estat%EDstico%20-%20Sistema%20Preg%E3o"
     query <- paste0(
       "pagetype=pop",
       "&caminho=", encoded_caminho,
-      "&Data=", .bmf_format_date_for_query(date),
+      "&Data=", .brf_format_date_for_query(date),
       "&Mercadoria=", utils::URLencode(ticker_root, reserved = TRUE)
     )
   }
@@ -51,24 +51,24 @@ bmf_bulletin_url <- function(date,
 #'
 #' @return Invisibly returns the path to the saved file.
 #' @export
-download_bmf_report <- function(date,
+download_brf_report <- function(date,
                                 ticker_root = "IND",
                                 dest_dir = NULL,
                                 overwrite = FALSE,
                                 quiet = FALSE,
                                 format = c("xls", "html"),
                                 which = c("cache", "data", "config")) {
-  ticker_vec <- .bmf_normalize_ticker_root(ticker_root)
+  ticker_vec <- .brf_normalize_ticker_root(ticker_root)
   ticker_vec <- ticker_vec[!is.na(ticker_vec)]
   if (!length(ticker_vec)) {
     stop("ticker_root cannot be missing or empty.", call. = FALSE)
   }
   ticker_root_norm <- ticker_vec[1L]
-  date <- .normalize_bmf_date(date)
+  date <- .normalize_brf_date(date)
   format <- match.arg(format)
   which <- match.arg(which)
   if (is.null(dest_dir)) {
-    dest_dir <- .bmf_storage_dir(ticker_root_norm, which = which)
+    dest_dir <- .brf_storage_dir(ticker_root_norm, which = which)
   } else if (!dir.exists(dest_dir)) {
     dir.create(dest_dir, recursive = TRUE, showWarnings = FALSE)
   }
@@ -84,7 +84,7 @@ download_bmf_report <- function(date,
   }
   expected_extension <- if (format == "xls") ".xls" else ".html"
   dest_file <- file.path(dest_dir, paste0(base_name, expected_extension))
-  url <- bmf_bulletin_url(date, ticker_root = ticker_root_norm, format = format)
+  url <- brf_bulletin_url(date, ticker_root = ticker_root_norm, format = format)
   resp <- httr::RETRY(
     "GET",
     url,
@@ -96,7 +96,7 @@ download_bmf_report <- function(date,
   httr::stop_for_status(resp, task = sprintf("download %s report for %s", ticker_root_norm, format(date, "%Y-%m-%d")))
   content <- httr::content(resp, as = "raw")
   writeBin(content, dest_file)
-  actual_format <- .bmf_detect_report_format(dest_file)
+  actual_format <- .brf_detect_report_format(dest_file)
   actual_extension <- if (identical(actual_format, "xls")) ".xls" else ".html"
   if (!identical(actual_extension, expected_extension)) {
     new_path <- file.path(dest_dir, paste0(base_name, actual_extension))
@@ -136,7 +136,7 @@ download_bmf_report <- function(date,
 #'
 #' @return A data frame with the parsed bulletin for all contract maturities.
 #' @export
-parse_bmf_report <- function(path,
+parse_brf_report <- function(path,
                              ticker_root = NULL,
                              report_date = NULL,
                              format = NULL) {
@@ -148,14 +148,14 @@ parse_bmf_report <- function(path,
     stop("Report '", path, "' is empty.", call. = FALSE)
   }
   path <- normalizePath(path, winslash = "/", mustWork = TRUE)
-  detected <- .bmf_detect_report_format(path)
+  detected <- .brf_detect_report_format(path)
   if (!detected %in% c("xls", "html")) {
     detected <- "xls"
   }
   if (is.null(ticker_root) || all(is.na(ticker_root)) || !any(nzchar(trimws(as.character(ticker_root))))) {
-    ticker_root <- .bmf_infer_ticker_from_path(path)
+    ticker_root <- .brf_infer_ticker_from_path(path)
   }
-  normalized <- .bmf_normalize_ticker_root(ticker_root)
+  normalized <- .brf_normalize_ticker_root(ticker_root)
   normalized <- normalized[!is.na(normalized)]
   ticker_root <- if (length(normalized)) normalized[1L] else NA_character_
   if (is.null(format)) {
@@ -169,8 +169,8 @@ parse_bmf_report <- function(path,
   }
   data <- switch(
     format,
-    xls = .parse_bmf_report_xls(path, ticker_root = ticker_root, report_date = report_date),
-    html = .parse_bmf_report_html(path, ticker_root = ticker_root, report_date = report_date)
+    xls = .parse_brf_report_xls(path, ticker_root = ticker_root, report_date = report_date),
+    html = .parse_brf_report_html(path, ticker_root = ticker_root, report_date = report_date)
   )
   if (!"ticker_root" %in% names(data)) {
     data$ticker_root <- ticker_root
@@ -189,19 +189,19 @@ parse_bmf_report <- function(path,
   data
 }
 
-.parse_bmf_report_html <- function(path, ticker_root, report_date) {
+.parse_brf_report_html <- function(path, ticker_root, report_date) {
   doc <- xml2::read_html(path, encoding = "windows-1252")
   resolved_date <- report_date
   if (is.null(resolved_date)) {
-    resolved_date <- .bmf_guess_report_date(path, doc)
+    resolved_date <- .brf_guess_report_date(path, doc)
   }
   if (!is.null(resolved_date) && !is.na(resolved_date)) {
-    resolved_date <- .normalize_bmf_date(resolved_date)
+    resolved_date <- .normalize_brf_date(resolved_date)
   } else {
     resolved_date <- NA
   }
-  if (.bmf_report_has_no_data_message(doc)) {
-    empty <- .bmf_empty_bulletin_dataframe()
+  if (.brf_report_has_no_data_message(doc)) {
+    empty <- .brf_empty_bulletin_dataframe()
     attr(empty, "report_date") <- resolved_date
     attr(empty, "ticker_root") <- ticker_root
     attr(empty, "commodity") <- ticker_root
@@ -212,14 +212,14 @@ parse_bmf_report <- function(path,
   }
   tables <- tryCatch(
     list(
-      vencto = .bmf_extract_table(doc, "MercadoFut0"),
-      volume = .bmf_extract_table(doc, "MercadoFut1"),
-      prices = .bmf_extract_table(doc, "MercadoFut2")
+      vencto = .brf_extract_table(doc, "MercadoFut0"),
+      volume = .brf_extract_table(doc, "MercadoFut1"),
+      prices = .brf_extract_table(doc, "MercadoFut2")
     ),
     error = function(err) {
       msg <- conditionMessage(err)
       if (grepl("was not found in the report", msg, fixed = TRUE)) {
-        fallback <- .bmf_extract_full_bulletin_table(doc)
+        fallback <- .brf_extract_full_bulletin_table(doc)
         if (!is.null(fallback)) {
           return(list(fallback = fallback))
         }
@@ -228,7 +228,7 @@ parse_bmf_report <- function(path,
     }
   )
   if (!is.null(tables$error)) {
-    empty <- .bmf_empty_bulletin_dataframe()
+    empty <- .brf_empty_bulletin_dataframe()
     attr(empty, "report_date") <- resolved_date
     attr(empty, "ticker_root") <- ticker_root
     attr(empty, "commodity") <- ticker_root
@@ -241,7 +241,7 @@ parse_bmf_report <- function(path,
     data <- tables$fallback
   } else {
     if (is.null(tables$vencto) || is.null(tables$volume) || is.null(tables$prices)) {
-      empty <- .bmf_empty_bulletin_dataframe()
+      empty <- .brf_empty_bulletin_dataframe()
       attr(empty, "report_date") <- resolved_date
       attr(empty, "ticker_root") <- ticker_root
       attr(empty, "commodity") <- ticker_root
@@ -258,12 +258,12 @@ parse_bmf_report <- function(path,
       check.names = FALSE
     )
   }
-  colnames(data) <- .bmf_rename_bulletin_columns(colnames(data))
+  colnames(data) <- .brf_rename_bulletin_columns(colnames(data))
   if (!"contract_code" %in% names(data)) {
     stop("Parsed data is missing the contract_code column.", call. = FALSE)
   }
   numeric_cols <- setdiff(names(data), "contract_code")
-  data[numeric_cols] <- lapply(data[numeric_cols], .bmf_parse_ptbr_number)
+  data[numeric_cols] <- lapply(data[numeric_cols], .brf_parse_ptbr_number)
   data$contract_code <- trimws(as.character(data$contract_code))
   data <- data[nzchar(data$contract_code), , drop = FALSE]
   data$ticker_root <- ticker_root
@@ -274,7 +274,7 @@ parse_bmf_report <- function(path,
   data
 }
 
-.parse_bmf_report_xls <- function(path, ticker_root, report_date) {
+.parse_brf_report_xls <- function(path, ticker_root, report_date) {
   sheets <- readxl::excel_sheets(path)
   if (!length(sheets)) {
     stop("Workbook in '", path, "' does not contain any sheets.", call. = FALSE)
@@ -336,17 +336,17 @@ parse_bmf_report <- function(path,
       as.character(value)
     }
   }, character(1), USE.NAMES = FALSE)
-  if (.bmf_contains_no_data_message(all_cells_chr)) {
+  if (.brf_contains_no_data_message(all_cells_chr)) {
     resolved_date <- report_date
     if (is.null(resolved_date) || is.na(resolved_date)) {
-      resolved_date <- .bmf_extract_date_from_filename(path)
+      resolved_date <- .brf_extract_date_from_filename(path)
     }
     if (!is.null(resolved_date) && !is.na(resolved_date)) {
-      resolved_date <- .normalize_bmf_date(resolved_date)
+      resolved_date <- .normalize_brf_date(resolved_date)
     } else {
       resolved_date <- NA
     }
-    empty <- .bmf_empty_bulletin_dataframe()
+    empty <- .brf_empty_bulletin_dataframe()
     attr(empty, "report_date") <- resolved_date
     attr(empty, "ticker_root") <- ticker_root
     attr(empty, "commodity") <- ticker_root
@@ -356,12 +356,12 @@ parse_bmf_report <- function(path,
     return(empty)
   }
   data <- data[nzchar(data[[1L]]), , drop = FALSE]
-  colnames(data) <- .bmf_rename_bulletin_columns(colnames(data))
+  colnames(data) <- .brf_rename_bulletin_columns(colnames(data))
   if (!"contract_code" %in% names(data)) {
     stop("Parsed Excel data is missing the contract_code column.", call. = FALSE)
   }
   numeric_cols <- setdiff(names(data), "contract_code")
-  data[numeric_cols] <- lapply(data[numeric_cols], .bmf_parse_ptbr_number)
+  data[numeric_cols] <- lapply(data[numeric_cols], .brf_parse_ptbr_number)
   data$contract_code <- trimws(as.character(data$contract_code))
   data <- data[nzchar(data$contract_code), , drop = FALSE]
   inferred_date <- report_date
@@ -370,16 +370,16 @@ parse_bmf_report <- function(path,
       if (!nzchar(text)) {
         as.Date(NA)
       } else {
-        .bmf_extract_date_from_text(text)
+        .brf_extract_date_from_text(text)
       }
     }, as.Date(NA))
     inferred_date <- dates[!is.na(dates)][1L]
   }
   if (is.null(inferred_date) || is.na(inferred_date)) {
-    inferred_date <- .bmf_extract_date_from_filename(path)
+    inferred_date <- .brf_extract_date_from_filename(path)
   }
   if (!is.null(inferred_date) && !is.na(inferred_date)) {
-    inferred_date <- .normalize_bmf_date(inferred_date)
+    inferred_date <- .normalize_brf_date(inferred_date)
   } else {
     inferred_date <- NA
   }
@@ -403,29 +403,29 @@ parse_bmf_report <- function(path,
 #'   is `NULL`.
 #'
 #' @details Legacy folder names that correspond to aliases of `ticker_root`
-#'   (see `.bmf_alias_roots()`) are merged into the result with their
+#'   (see `.brf_alias_roots()`) are merged into the result with their
 #'   `ticker_root` column normalised to the modern symbol.
 #'
 #' @return A data frame combining all parsed bulletins.
 #' @export
-bmf_collect_contracts <- function(ticker_root,
+brf_collect_contracts <- function(ticker_root,
                                   data_dir = NULL,
                                   drop_empty = TRUE,
                                   which = c("cache", "data", "config")) {
-  normalized <- .bmf_normalize_ticker_root(ticker_root)
+  normalized <- .brf_normalize_ticker_root(ticker_root)
   normalized <- normalized[!is.na(normalized)]
   if (!length(normalized)) {
     stop("ticker_root cannot be missing or empty.", call. = FALSE)
   }
-  ticker_root_norm <- .bmf_alias_canonical(normalized[1L])[1L]
+  ticker_root_norm <- .brf_alias_canonical(normalized[1L])[1L]
   which <- match.arg(which)
-  alias_roots <- .bmf_alias_roots(ticker_root_norm)
+  alias_roots <- .brf_alias_roots(ticker_root_norm)
 
   resolve_dir <- function(root_sym, base_dir = NULL) {
     if (!is.null(base_dir) && dir.exists(base_dir) && identical(root_sym, ticker_root_norm)) {
       return(base_dir)
     }
-    default_dir <- .bmf_storage_dir(root_sym, which = which)
+    default_dir <- .brf_storage_dir(root_sym, which = which)
     if (dir.exists(default_dir)) {
       return(default_dir)
     }
@@ -439,7 +439,7 @@ bmf_collect_contracts <- function(ticker_root,
   }
 
   base_dir <- if (is.null(data_dir)) {
-    .bmf_storage_dir(ticker_root_norm, which = which)
+    .brf_storage_dir(ticker_root_norm, which = which)
   } else {
     data_dir
   }
@@ -480,8 +480,8 @@ bmf_collect_contracts <- function(ticker_root,
     }
     reason_dates_local <- as.Date(character())
     parsed_local <- lapply(files, function(path) {
-      inferred_date <- .bmf_extract_date_from_filename(path)
-      df <- parse_bmf_report(path, ticker_root = root_sym, report_date = inferred_date)
+      inferred_date <- .brf_extract_date_from_filename(path)
+      df <- parse_brf_report(path, ticker_root = root_sym, report_date = inferred_date)
       if (drop_empty && !nrow(df)) {
         reason <- attr(df, "reason")
         if (!is.null(reason) && reason %in% c("no_data", "missing_tables", "incomplete_tables")) {
@@ -527,12 +527,12 @@ bmf_collect_contracts <- function(ticker_root,
     for (root_sym in names(reason_map)) {
       reasons <- reason_map[[root_sym]]
       dir_path <- candidate_dirs[[root_sym]]
-      existing_skip <- .bmf_read_no_data_dates(
+      existing_skip <- .brf_read_no_data_dates(
         root_sym,
         which,
         dest_dir = dir_path
       )
-      .bmf_write_no_data_dates(
+      .brf_write_no_data_dates(
         root_sym,
         which,
         unique(c(existing_skip, reasons)),
@@ -542,12 +542,12 @@ bmf_collect_contracts <- function(ticker_root,
   }
 
   if (!length(parsed)) {
-    return(.bmf_empty_bulletin_dataframe())
+    return(.brf_empty_bulletin_dataframe())
   }
 
   combined <- do.call(rbind, parsed)
   combined$ticker_root <- toupper(combined$ticker_root)
-  combined$ticker_root <- .bmf_alias_canonical(combined$ticker_root)
+  combined$ticker_root <- .brf_alias_canonical(combined$ticker_root)
   alias_upper <- alias_roots
   if (length(alias_upper)) {
     idx_alias <- combined$ticker_root %in% alias_upper
@@ -559,7 +559,7 @@ bmf_collect_contracts <- function(ticker_root,
     }
   }
   if ("commodity" %in% names(combined)) {
-    combined$commodity <- .bmf_alias_canonical(combined$commodity)
+    combined$commodity <- .brf_alias_canonical(combined$commodity)
   }
   combined <- combined[order(combined$contract_code, combined$date), , drop = FALSE]
   combined$ticker <- paste0(combined$ticker_root, combined$contract_code)
@@ -592,7 +592,7 @@ bmf_collect_contracts <- function(ticker_root,
 #' @return A named list of xts objects; the list has an attribute `files` with
 #'   the paths of the saved series (if `save_series = TRUE`).
 #' @export
-bmf_build_contract_series <- function(ticker_root,
+brf_build_contract_series <- function(ticker_root,
                                       data_dir = NULL,
                                       out_dir = NULL,
                                       save_series = TRUE,
@@ -601,21 +601,21 @@ bmf_build_contract_series <- function(ticker_root,
                                       verbose = TRUE,
                                       estimate_maturity = TRUE,
                                       return = c("list", "agg")) {
-  normalized <- .bmf_normalize_ticker_root(ticker_root)
+  normalized <- .brf_normalize_ticker_root(ticker_root)
   normalized <- normalized[!is.na(normalized)]
   if (!length(normalized)) {
     stop("ticker_root cannot be missing or empty.", call. = FALSE)
   }
-  ticker_root_norm <- .bmf_alias_canonical(normalized[1L])[1L]
+  ticker_root_norm <- .brf_alias_canonical(normalized[1L])[1L]
   which <- match.arg(which)
   return <- match.arg(return)
   if (is.null(data_dir)) {
-    data_dir <- .bmf_storage_dir(ticker_root_norm, which = which)
+    data_dir <- .brf_storage_dir(ticker_root_norm, which = which)
   }
   if (is.null(out_dir)) {
     out_dir <- file.path(data_dir, "xts")
   }
-  combined <- bmf_collect_contracts(
+  combined <- brf_collect_contracts(
     ticker_root = ticker_root_norm,
     data_dir = data_dir,
     drop_empty = TRUE,
@@ -629,10 +629,10 @@ bmf_build_contract_series <- function(ticker_root,
     combined <- combined[, c("date", "ticker_root", "commodity", "contract_code", "ticker", setdiff(names(combined), c("date", "ticker_root", "commodity", "contract_code", "ticker"))), drop = FALSE]
   }
   if (isTRUE(estimate_maturity)) {
-    calendar_name <- .bmf_get_calendar()
+    calendar_name <- .brf_get_calendar()
     combined$estimated_maturity <- vapply(
       combined$ticker,
-      function(sym) .bmf_estimate_maturity(sym, calendar_name = calendar_name),
+      function(sym) .brf_estimate_maturity(sym, calendar_name = calendar_name),
       FUN.VALUE = as.Date(NA)
     )
     if (!inherits(combined$estimated_maturity, "Date")) {
@@ -697,7 +697,7 @@ bmf_build_contract_series <- function(ticker_root,
   }
   if (identical(return, "agg")) {
     warning("Aggregate requested via return = 'agg' but add_agg is FALSE; returning empty data frame.", call. = FALSE)
-    return(.bmf_empty_bulletin_dataframe())
+    return(.brf_empty_bulletin_dataframe())
   }
   series_list
 }
@@ -716,13 +716,13 @@ bmf_build_contract_series <- function(ticker_root,
 #'   is `NULL`.
 #' @param verbose If `TRUE`, emit progress messages and download stats.
 #'
-#' @details Historical aliases returned by `.bmf_alias_roots()` are retried
+#' @details Historical aliases returned by `.brf_alias_roots()` are retried
 #'   automatically when a report is missing or empty, and any successfully
 #'   fetched bulletin is saved under the modern `ticker_root` naming.
 #'
 #' @return Invisibly returns a data frame summarising download results.
 #' @export
-bmf_download_history <- function(ticker_root,
+brf_download_history <- function(ticker_root,
                                  start_date,
                                  end_date = Sys.Date(),
                                  dest_dir = NULL,
@@ -732,18 +732,18 @@ bmf_download_history <- function(ticker_root,
                                  skip_existing = TRUE,
                                  which = c("cache", "data", "config"),
                                  verbose = TRUE) {
-  normalized <- .bmf_normalize_ticker_root(ticker_root)
+  normalized <- .brf_normalize_ticker_root(ticker_root)
   normalized <- normalized[!is.na(normalized)]
   if (!length(normalized)) {
     stop("ticker_root cannot be missing or empty.", call. = FALSE)
   }
-  ticker_root_norm <- .bmf_alias_canonical(normalized[1L])[1L]
+  ticker_root_norm <- .brf_alias_canonical(normalized[1L])[1L]
   which <- match.arg(which)
   if (is.null(dest_dir)) {
-    dest_dir <- .bmf_storage_dir(ticker_root_norm, which = which)
+    dest_dir <- .brf_storage_dir(ticker_root_norm, which = which)
   }
-  start_date <- .normalize_bmf_date(start_date)
-  end_date <- .normalize_bmf_date(end_date)
+  start_date <- .normalize_brf_date(start_date)
+  end_date <- .normalize_brf_date(end_date)
   if (start_date > end_date) {
     stop("start_date must be before or equal to end_date.", call. = FALSE)
   }
@@ -751,7 +751,7 @@ bmf_download_history <- function(ticker_root,
   if (overwrite) {
     skip_existing <- FALSE
   }
-  no_data_dates <- .bmf_read_no_data_dates(
+  no_data_dates <- .brf_read_no_data_dates(
     ticker_root_norm,
     which,
     dest_dir = dest_dir
@@ -761,7 +761,7 @@ bmf_download_history <- function(ticker_root,
     if (!force && identical(no_data_dates, last_written_no_data_dates)) {
       return(invisible(FALSE))
     }
-    .bmf_write_no_data_dates(
+    .brf_write_no_data_dates(
       ticker_root_norm,
       which,
       no_data_dates,
@@ -779,8 +779,8 @@ bmf_download_history <- function(ticker_root,
   if (length(existing_files)) {
     cleaned_dates <- as.Date(character())
     for (path in existing_files) {
-      if (.bmf_file_has_no_data_message(path)) {
-        file_date <- .bmf_extract_date_from_filename(path)
+      if (.brf_file_has_no_data_message(path)) {
+        file_date <- .brf_extract_date_from_filename(path)
         unlink(path)
         if (!is.na(file_date)) {
           cleaned_dates <- c(cleaned_dates, file_date)
@@ -805,7 +805,7 @@ bmf_download_history <- function(ticker_root,
   if (length(existing_files)) {
     file_dates <- vapply(
       existing_files,
-      .bmf_extract_date_from_filename,
+      .brf_extract_date_from_filename,
       as.Date(NA)
     )
     valid_idx <- !is.na(file_dates)
@@ -899,7 +899,7 @@ bmf_download_history <- function(ticker_root,
     }
     current_date_str <- strftime(current_date, "%Y-%m-%d")
     base_name_main <- sprintf("%s_%s", ticker_root_norm, current_date_str)
-    candidate_roots <- unique(c(ticker_root_norm, .bmf_alias_roots(ticker_root_norm)))
+    candidate_roots <- unique(c(ticker_root_norm, .brf_alias_roots(ticker_root_norm)))
     attempt_messages <- character()
     final_reason <- NULL
     saved_path_final <- NA_character_
@@ -914,7 +914,7 @@ bmf_download_history <- function(ticker_root,
         }
       }
       attempt_path <- tryCatch(
-        download_bmf_report(
+        download_brf_report(
           date = current_date,
           ticker_root = root_sym,
           dest_dir = dest_dir,
@@ -962,7 +962,7 @@ bmf_download_history <- function(ticker_root,
       }
       parsed_meta <- try(
         suppressMessages(
-          parse_bmf_report(
+          parse_brf_report(
             saved_path,
             ticker_root = ticker_root_norm,
             report_date = current_date,
@@ -985,7 +985,7 @@ bmf_download_history <- function(ticker_root,
       reason_flag <- NULL
       if (!nrow(parsed_meta)) {
         reason_flag <- attr(parsed_meta, "reason")
-        if (is.null(reason_flag) && .bmf_file_has_no_data_message(saved_path)) {
+        if (is.null(reason_flag) && .brf_file_has_no_data_message(saved_path)) {
           reason_flag <- "no_data"
         }
       }
@@ -1079,8 +1079,8 @@ bmf_download_history <- function(ticker_root,
 #'
 #' @return A data frame with `ticker_root` and `description` columns.
 #' @export
-bmf_list_ticker_roots <- function() {
-  url <- "https://www2.bmf.com.br/pages/portal/bmfbovespa/boletim1/SistemaPregao1.asp?pagetype=pop"
+brf_list_ticker_roots <- function() {
+  url <- "https://www2.brf.com.br/pages/portal/brfbovespa/boletim1/SistemaPregao1.asp?pagetype=pop"
   resp <- httr::RETRY(
     "GET",
     url,
@@ -1117,7 +1117,7 @@ bmf_list_ticker_roots <- function() {
   if (!any(keep)) {
     return(data.frame(ticker_root = character(), description = character(), stringsAsFactors = FALSE))
   }
-  roots <- .bmf_normalize_ticker_root(roots[keep])
+  roots <- .brf_normalize_ticker_root(roots[keep])
   descriptions <- descriptions[keep]
   df <- data.frame(
     ticker_root = roots,
@@ -1138,6 +1138,10 @@ bmf_list_ticker_roots <- function() {
 #'   are inferred.
 #' @param type One of `"full"` or `"ohlcv_locf"` (forward-fill OHLC gaps per contract before
 #'   returning the data).
+#' @param source Data source for the aggregate: `"local"` reads cached bulletin
+#'   files (using `which` to resolve paths) while `"sm_api"` calls
+#'   `sm_get_data()` and falls back to the local cache if the API is
+#'   unavailable.
 #' @param return Controls the output: `"agg"` (default) returns the aggregate
 #'   data frame; `"list"` returns a split list of data frames with a `path`
 #'   attribute referencing the aggregate file.
@@ -1145,12 +1149,13 @@ bmf_list_ticker_roots <- function() {
 #' @return A data frame with the aggregated data or an empty data frame if the
 #'   aggregate is missing. Prints the path when found.
 #' @export
-bmf_get_aggregate <- function(ticker_root,
+brf_get_aggregate <- function(ticker_root,
                               data_dir = NULL,
                               which = c("cache", "data", "config"),
                               type = c("ohlcv_locf","full"),
+                              source = c("local", "sm_api"),
                               return = c("agg", "list")) {
-  normalized <- .bmf_normalize_ticker_root(ticker_root)
+  normalized <- .brf_normalize_ticker_root(ticker_root)
   normalized <- normalized[!is.na(normalized)]
   if (!length(normalized)) {
     stop("ticker_root cannot be missing or empty.", call. = FALSE)
@@ -1158,22 +1163,59 @@ bmf_get_aggregate <- function(ticker_root,
   ticker_root_norm <- normalized[1L]
   which <- match.arg(which)
   type <- match.arg(type)
+  source <- match.arg(source)
   return <- match.arg(return)
-  if (is.null(data_dir)) {
-    data_dir <- .bmf_storage_dir(ticker_root_norm, which = which, create = FALSE)
+  resolve_local <- function() {
+    dir_path <- data_dir
+    if (is.null(dir_path)) {
+      dir_path <- .brf_storage_dir(ticker_root_norm, which = which, create = FALSE)
+    }
+    if (is.null(dir_path) || !dir.exists(dir_path)) {
+      message("Aggregate directory does not exist for ", ticker_root_norm)
+      return(list(data = .brf_empty_bulletin_dataframe(), path = NULL))
+    }
+    agg_path <- file.path(dir_path, "xts", paste0(ticker_root_norm, "_aggregate.rds"))
+    if (!file.exists(agg_path)) {
+      message("Aggregate file not found for ", ticker_root_norm, " at ", agg_path)
+      return(list(data = .brf_empty_bulletin_dataframe(), path = NULL))
+    }
+    agg_path <- normalizePath(agg_path, winslash = "/", mustWork = TRUE)
+    message("Aggregate file: ", agg_path)
+    list(data = readRDS(agg_path), path = agg_path)
   }
-  if (is.null(data_dir) || !dir.exists(data_dir)) {
-    message("Aggregate directory does not exist for ", ticker_root_norm)
-    return(.bmf_empty_bulletin_dataframe())
+  local_result <- NULL
+  data <- NULL
+  aggregate_path <- NULL
+  if (identical(source, "sm_api")) {
+    api_res <- try(
+      sm_get_data(
+        ticker_root_norm,
+        future_history = TRUE,
+        single_xts = TRUE,
+        set_instruments = FALSE
+      ),
+      silent = FALSE
+    )
+    if (!inherits(api_res, "try-error") && !is.null(api_res)) {
+      data <- .brf_prepare_continuous_aggregate(api_res, ticker_root_norm)
+    } else {
+      warning(
+        "sm_get_data() is not available; falling back to cached aggregate data.",
+        call. = FALSE
+      )
+      local_result <- resolve_local()
+    }
   }
-  aggregate_path <- file.path(data_dir, "xts", paste0(ticker_root_norm, "_aggregate.rds"))
-  if (!file.exists(aggregate_path)) {
-    message("Aggregate file not found for ", ticker_root_norm, " at ", aggregate_path)
-    return(.bmf_empty_bulletin_dataframe())
+  if (is.null(data)) {
+    if (is.null(local_result)) {
+      local_result <- resolve_local()
+    }
+    data <- local_result$data
+    aggregate_path <- local_result$path
   }
-  aggregate_path <- normalizePath(aggregate_path, winslash = "/", mustWork = TRUE)
-  message("Aggregate file: ", aggregate_path)
-  data <- readRDS(aggregate_path)
+  if (!nrow(data)) {
+    return(.brf_empty_bulletin_dataframe())
+  }
   if ("estimated_maturity" %in% names(data) && !inherits(data$estimated_maturity, "Date")) {
     if (is.numeric(data$estimated_maturity)) {
       data$estimated_maturity <- as.Date(data$estimated_maturity, origin = "1970-01-01")
@@ -1182,19 +1224,21 @@ bmf_get_aggregate <- function(ticker_root,
     }
   }
   if (type == "ohlcv_locf") {
-    data <- .bmf_locf_ohlc(data)
-    data <- .bmf_add_pu_columns(data, ticker_hint = ticker_root_norm)
+    data <- .brf_locf_ohlc(data)
+    data <- .brf_add_pu_columns(data, ticker_hint = ticker_root_norm)
   }
   if(type == "full"){
-    data <- .bmf_locf_ohlc(data)
-    data <- .bmf_add_pu_columns(data, ticker_hint = ticker_root_norm)
+    data <- .brf_locf_ohlc(data)
+    data <- .brf_add_pu_columns(data, ticker_hint = ticker_root_norm)
   }
-  data <- .bmf_full(data)
+  data <- .brf_full(data)
   if (identical(return, "list")) {
     ordered_idx <- order(data$symbol, data$refdate, seq_len(nrow(data)))
     data <- data[ordered_idx, , drop = FALSE]
     split_list <- split(data, data$symbol)
-    attr(split_list, "path") <- aggregate_path
+    if (!is.null(aggregate_path)) {
+      attr(split_list, "path") <- aggregate_path
+    }
     return(split_list)
   }
   data
@@ -1209,47 +1253,104 @@ bmf_get_aggregate <- function(ticker_root,
 #'   are inferred.
 #' @param type One of `"full"` or `"ohlcv_locf"` (forward-fill OHLC gaps per contract before
 #'   returning the data).
+#' @param source Data source for the series: `"local"` reads cached bulletin
+#'   aggregates (guided by `which`) while `"sm_api"` calls `sm_get_data()` and
+#'   falls back to the local cache if the API is unavailable.
 #' @param verbose If `TRUE`, emit informative messages.
 #' @param tz Time zone assigned to the returned xts index.
 #'
 #' @return An xts object containing the requested series; an empty data frame is
 #'   returned when the ticker is not found.
 #' @export
-bmf_get_series <- function(ticker,
+brf_get_series <- function(ticker,
                            data_dir = NULL,
                            which = c("cache", "data", "config"),
                            type = c("full", "ohlcv_locf"),
+                           source = c("local", "sm_api"),
                            verbose = FALSE, tz = "America/Sao_Paulo") {
   if (missing(ticker) || !nzchar(trimws(ticker[1L]))) {
     stop("ticker must be provided.", call. = FALSE)
   }
   ticker <- toupper(trimws(ticker[1L]))
-  ticker_root <- .bmf_normalize_ticker_root(substr(ticker, 1L, 3L))
+  ticker_root <- .brf_normalize_ticker_root(substr(ticker, 1L, 3L))
   which <- match.arg(which)
   type <- match.arg(type)
-  if (is.null(data_dir)) {
-    data_dir <- .bmf_storage_dir(ticker_root, which = which, create = FALSE)
-  }
-  if (is.null(data_dir) || !dir.exists(data_dir)) {
-    if (verbose) {
-      message("Data directory does not exist for ", ticker_root)
+  source <- match.arg(source)
+  load_local <- function() {
+    dir_path <- data_dir
+    if (is.null(dir_path)) {
+      dir_path <- .brf_storage_dir(ticker_root, which = which, create = FALSE)
     }
-    return(.bmf_empty_bulletin_dataframe())
-  }
-  aggregate_path <- file.path(data_dir, "xts", paste0(ticker_root, "_aggregate.rds"))
-  if (!file.exists(aggregate_path)) {
-    if (verbose) {
-      message("Aggregate file not found for ", ticker_root, " at ", aggregate_path)
+    if (is.null(dir_path) || !dir.exists(dir_path)) {
+      if (verbose) {
+        message("Data directory does not exist for ", ticker_root)
+      }
+      return(.brf_empty_bulletin_dataframe())
     }
-    return(.bmf_empty_bulletin_dataframe())
+    aggregate_path <- file.path(dir_path, "xts", paste0(ticker_root, "_aggregate.rds"))
+    if (!file.exists(aggregate_path)) {
+      if (verbose) {
+        message("Aggregate file not found for ", ticker_root, " at ", aggregate_path)
+      }
+      return(.brf_empty_bulletin_dataframe())
+    }
+    readRDS(aggregate_path)
   }
-  aggregate_data <- readRDS(aggregate_path)
+  aggregate_data <- switch(
+    source,
+    local = load_local(),
+    sm_api = {
+      api_res <- try(
+        sm_get_data(
+          ticker_root,
+          future_history = TRUE,
+          single_xts = TRUE,
+          set_instruments = FALSE
+        ),
+        silent = FALSE
+      )
+      if (!inherits(api_res, "try-error") && !is.null(api_res)) {
+        api_data <- .brf_prepare_continuous_aggregate(api_res, ticker_root)
+        if ("refdate" %in% names(api_data) && !"date" %in% names(api_data)) {
+          api_data$date <- as.Date(api_data$refdate)
+        }
+        if ("symbol" %in% names(api_data) && !"ticker" %in% names(api_data)) {
+          api_data$ticker <- as.character(api_data$symbol)
+        }
+        api_data
+      } else {
+        warning(
+          "sm_get_data() is not available; falling back to cached aggregate data.",
+          call. = FALSE
+        )
+        load_local()
+      }
+    }
+  )
+  if (!is.data.frame(aggregate_data)) {
+    aggregate_data <- tryCatch(
+      as.data.frame(aggregate_data, stringsAsFactors = FALSE, optional = TRUE),
+      error = function(...) aggregate_data
+    )
+  }
+  if (!nrow(aggregate_data)) {
+    if (verbose) {
+      message("Aggregate data not available for ", ticker_root)
+    }
+    return(.brf_empty_bulletin_dataframe())
+  }
+  if ("refdate" %in% names(aggregate_data) && !"date" %in% names(aggregate_data)) {
+    aggregate_data$date <- as.Date(aggregate_data$refdate)
+  }
+  if ("symbol" %in% names(aggregate_data) && !"ticker" %in% names(aggregate_data)) {
+    aggregate_data$ticker <- as.character(aggregate_data$symbol)
+  }
   subset <- aggregate_data[aggregate_data$ticker == ticker, , drop = FALSE]
   if (!nrow(subset)) {
     if (verbose) {
       message("Ticker ", ticker, " not found in aggregate data.")
     }
-    return(.bmf_empty_bulletin_dataframe())
+    return(.brf_empty_bulletin_dataframe())
   }
   if ("estimated_maturity" %in% names(subset) && !inherits(subset$estimated_maturity, "Date")) {
     if (is.numeric(subset$estimated_maturity)) {
@@ -1259,9 +1360,9 @@ bmf_get_series <- function(ticker,
     }
   }
   if (type == "ohlcv_locf") {
-    subset <- .bmf_locf_ohlc(subset)
+    subset <- .brf_locf_ohlc(subset)
   }
-  subset <- .bmf_add_pu_columns(subset, ticker_hint = ticker)
+  subset <- .brf_add_pu_columns(subset, ticker_hint = ticker)
   if (type %in% c("ohlcv_locf")) {
     cols <- intersect(
       c("date", "ticker", "open", "high", "low", "close", "volume", "PU_o", "PU_h", "PU_l", "PU_c"),
@@ -1279,7 +1380,7 @@ bmf_get_series <- function(ticker,
               subset$low == 0 & subset$close == 0)
   subset <- subset[mask, , drop = FALSE]
   if (!nrow(subset)) {
-    return(.bmf_empty_bulletin_dataframe())
+    return(.brf_empty_bulletin_dataframe())
   }
   idx <- force_tz(as.POSIXct(subset$date), tzone = tz)
   matrix_cols <- intersect(
@@ -1291,8 +1392,8 @@ bmf_get_series <- function(ticker,
     order.by = idx
   )
 if(type == "full"){
-  subset <- .bmf_locf_ohlc(subset)
-  subset <- .bmf_full(subset)
+  subset <- .brf_locf_ohlc(subset)
+  subset <- .brf_full(subset)
   return(subset)
 }
   display_map <- c(open = "Open", high = "High", low = "Low", close = "Close", volume = "Volume")
@@ -1303,7 +1404,7 @@ if(type == "full"){
   subset_xts
 }
 
-.bmf_add_pu_columns <- function(df, ticker_hint = NULL) {
+.brf_add_pu_columns <- function(df, ticker_hint = NULL) {
   if (!is.data.frame(df) || !nrow(df)) {
     return(df)
   }
@@ -1343,7 +1444,7 @@ if(type == "full"){
       if (!length(basis_dates)) {
         next
       }
-      cal <- .bmf_get_calendar()
+      cal <- .brf_get_calendar()
       valid_days <- vapply(
         seq_along(basis_dates),
         function(i) {
@@ -1377,7 +1478,7 @@ if(type == "full"){
   df
 }
 
-.bmf_locf_ohlc <- function(df) {
+.brf_locf_ohlc <- function(df) {
   required_cols <- intersect(c("open", "high", "low", "close"), names(df))
   if (!length(required_cols) || !"ticker" %in% names(df) || !"date" %in% names(df)) {
     return(df)
@@ -1407,7 +1508,7 @@ if(type == "full"){
   df
 }
 
-.bmf_full <- function(df){
+.brf_full <- function(df){
     if ("ticker" %in% names(df)) {
       names(df)[names(df) == "ticker"] <- "symbol"
     }
