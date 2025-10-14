@@ -167,8 +167,7 @@ parse_brf_report <- function(path,
       format <- detected
     }
   }
-  data <- switch(
-    format,
+  data <- switch(format,
     xls = .parse_brf_report_xls(path, ticker_root = ticker_root, report_date = report_date),
     html = .parse_brf_report_html(path, ticker_root = ticker_root, report_date = report_date)
   )
@@ -1152,7 +1151,7 @@ brf_list_ticker_roots <- function() {
 brf_get_aggregate <- function(ticker_root,
                               data_dir = NULL,
                               which = c("cache", "data", "config"),
-                              type = c("ohlcv_locf","full"),
+                              type = c("ohlcv_locf", "full"),
                               source = c("local", "sm_api"),
                               return = c("agg", "list")) {
   normalized <- .brf_normalize_ticker_root(ticker_root)
@@ -1227,7 +1226,7 @@ brf_get_aggregate <- function(ticker_root,
     data <- .brf_locf_ohlc(data)
     data <- .brf_add_pu_columns(data, ticker_hint = ticker_root_norm)
   }
-  if(type == "full"){
+  if (type == "full") {
     data <- .brf_locf_ohlc(data)
     data <- .brf_add_pu_columns(data, ticker_hint = ticker_root_norm)
   }
@@ -1296,14 +1295,13 @@ brf_get_series <- function(ticker,
     }
     readRDS(aggregate_path)
   }
-  aggregate_data <- switch(
-    source,
+  aggregate_data <- switch(source,
     local = load_local(),
     sm_api = {
       api_res <- try(
         sm_get_data(
           ticker_root,
-          future_history = TRUE,
+          #      future_history = TRUE,
           single_xts = TRUE,
           set_instruments = FALSE
         ),
@@ -1311,9 +1309,9 @@ brf_get_series <- function(ticker,
       )
       if (!inherits(api_res, "try-error") && !is.null(api_res)) {
         api_data <- .brf_prepare_continuous_aggregate(api_res, ticker_root)
-        if ("refdate" %in% names(api_data) && !"date" %in% names(api_data)) {
-          api_data$date <- as.Date(api_data$refdate)
-        }
+        # if ("refdate" %in% names(api_data) && !"date" %in% names(api_data)) {
+        # api_data$date <- as.Date(api_data$refdate)
+        # }
         if ("symbol" %in% names(api_data) && !"ticker" %in% names(api_data)) {
           api_data$ticker <- as.character(api_data$symbol)
         }
@@ -1377,7 +1375,7 @@ brf_get_series <- function(ticker,
   subset$close <- as.numeric(subset$close)
   subset$volume <- as.numeric(subset$volume)
   mask <- !(subset$open == 0 & subset$high == 0 &
-              subset$low == 0 & subset$close == 0)
+    subset$low == 0 & subset$close == 0)
   subset <- subset[mask, , drop = FALSE]
   if (!nrow(subset)) {
     return(.brf_empty_bulletin_dataframe())
@@ -1391,11 +1389,11 @@ brf_get_series <- function(ticker,
     as.matrix(subset[, matrix_cols, drop = FALSE]),
     order.by = idx
   )
-if(type == "full"){
-  subset <- .brf_locf_ohlc(subset)
-  subset <- .brf_full(subset)
-  return(subset)
-}
+  if (type == "full") {
+    subset <- .brf_locf_ohlc(subset)
+    subset <- .brf_full(subset)
+    return(subset)
+  }
   display_map <- c(open = "Open", high = "High", low = "Low", close = "Close", volume = "Volume")
   new_names <- matrix_cols
   mapped <- matrix_cols %in% names(display_map)
@@ -1466,30 +1464,89 @@ if(type == "full"){
       lower_names <- tolower(names(df))
       pu_lookup <- stats::setNames(names(df), lower_names)
       has_raw_pu <- all(c("pu_o", "pu_h", "pu_l", "pu_c") %in% lower_names)
-      if (has_raw_pu) {
-        df$PU_o[idx] <- suppressWarnings(as.numeric(df[[pu_lookup[["pu_o"]]]][idx]))
-        df$PU_h[idx] <- suppressWarnings(as.numeric(df[[pu_lookup[["pu_h"]]]][idx]))
-        df$PU_l[idx] <- suppressWarnings(as.numeric(df[[pu_lookup[["pu_l"]]]][idx]))
-        df$PU_c[idx] <- suppressWarnings(as.numeric(df[[pu_lookup[["pu_c"]]]][idx]))
-      } else {
-        df$PU_o[idx] <- .di_pu_from_rate(df$open[idx], valid_days)
-        df$PU_h[idx] <- .di_pu_from_rate(df$high[idx], valid_days)
-        df$PU_l[idx] <- .di_pu_from_rate(df$low[idx], valid_days)
-        df$PU_c[idx] <- .di_pu_from_rate(df$close[idx], valid_days)
-      }
-      restore_rates <- function(rate_vec, pu_vec) {
-        needs_rate <- is.finite(pu_vec) & pu_vec > 0 & (!is.finite(rate_vec) | rate_vec > 100)
-        if (!any(needs_rate, na.rm = TRUE)) {
-          return(rate_vec)
+      open_vec <- suppressWarnings(as.numeric(df$open[idx]))
+      high_vec <- suppressWarnings(as.numeric(df$high[idx]))
+      low_vec <- suppressWarnings(as.numeric(df$low[idx]))
+      close_vec <- suppressWarnings(as.numeric(df$close[idx]))
+      valid_days_safe <- valid_days
+      valid_days_safe[!is.finite(valid_days_safe) | valid_days_safe <= 0] <- NA_real_
+      to_pu <- function(rate_vec) {
+        out <- rep(NA_real_, length(rate_vec))
+        ok <- is.finite(rate_vec) & is.finite(valid_days_safe)
+        if (any(ok)) {
+          out[ok] <- .di_pu_from_rate(rate_vec[ok], valid_days_safe[ok])
         }
-        converted <- .di_rate_from_pu(pu_vec, valid_days)
-        rate_vec[needs_rate] <- converted[needs_rate]
-        rate_vec
+        out
       }
-      df$open[idx] <- restore_rates(df$open[idx], df$PU_o[idx])
-      df$high[idx] <- restore_rates(df$high[idx], df$PU_h[idx])
-      df$low[idx] <- restore_rates(df$low[idx], df$PU_l[idx])
-      df$close[idx] <- restore_rates(df$close[idx], df$PU_c[idx])
+      to_rate <- function(pu_vec) {
+        out <- rep(NA_real_, length(pu_vec))
+        ok <- is.finite(pu_vec) & pu_vec > 0 & is.finite(valid_days_safe)
+        if (any(ok)) {
+          out[ok] <- .di_rate_from_pu(pu_vec[ok], valid_days_safe[ok])
+        }
+        out
+      }
+      if (has_raw_pu) {
+        pu_o <- suppressWarnings(as.numeric(df[[pu_lookup[["pu_o"]]]][idx]))
+        pu_h <- suppressWarnings(as.numeric(df[[pu_lookup[["pu_h"]]]][idx]))
+        pu_l <- suppressWarnings(as.numeric(df[[pu_lookup[["pu_l"]]]][idx]))
+        pu_c <- suppressWarnings(as.numeric(df[[pu_lookup[["pu_c"]]]][idx]))
+      } else {
+        pu_o <- pu_h <- pu_l <- pu_c <- rep(NA_real_, length(idx))
+      }
+      is_notional <- function(vec) is.finite(vec) & abs(vec) > 100
+      notional_open <- is_notional(open_vec)
+      notional_high <- is_notional(high_vec)
+      notional_low <- is_notional(low_vec)
+      notional_close <- is_notional(close_vec)
+      if (any(notional_open, na.rm = TRUE) && !has_raw_pu) {
+        pu_o[notional_open] <- open_vec[notional_open]
+      }
+      if (any(notional_high, na.rm = TRUE) && !has_raw_pu) {
+        pu_h[notional_high] <- high_vec[notional_high]
+      }
+      if (any(notional_low, na.rm = TRUE) && !has_raw_pu) {
+        pu_l[notional_low] <- low_vec[notional_low]
+      }
+      if (any(notional_close, na.rm = TRUE) && !has_raw_pu) {
+        pu_c[notional_close] <- close_vec[notional_close]
+      }
+      rate_from_open <- to_rate(open_vec)
+      rate_from_high <- to_rate(high_vec)
+      rate_from_low <- to_rate(low_vec)
+      rate_from_close <- to_rate(close_vec)
+      mask_open <- notional_open & is.finite(rate_from_open)
+      mask_high <- notional_high & is.finite(rate_from_high)
+      mask_low <- notional_low & is.finite(rate_from_low)
+      mask_close <- notional_close & is.finite(rate_from_close)
+      if (any(mask_open, na.rm = TRUE)) {
+        open_vec[mask_open] <- rate_from_open[mask_open]
+      }
+      if (any(mask_high, na.rm = TRUE)) {
+        high_vec[mask_high] <- rate_from_high[mask_high]
+      }
+      if (any(mask_low, na.rm = TRUE)) {
+        low_vec[mask_low] <- rate_from_low[mask_low]
+      }
+      if (any(mask_close, na.rm = TRUE)) {
+        close_vec[mask_close] <- rate_from_close[mask_close]
+      }
+      fill_pu_o <- to_pu(open_vec)
+      fill_pu_h <- to_pu(high_vec)
+      fill_pu_l <- to_pu(low_vec)
+      fill_pu_c <- to_pu(close_vec)
+      pu_o[is.na(pu_o) | pu_o <= 0] <- fill_pu_o[is.na(pu_o) | pu_o <= 0]
+      pu_h[is.na(pu_h) | pu_h <= 0] <- fill_pu_h[is.na(pu_h) | pu_h <= 0]
+      pu_l[is.na(pu_l) | pu_l <= 0] <- fill_pu_l[is.na(pu_l) | pu_l <= 0]
+      pu_c[is.na(pu_c) | pu_c <= 0] <- fill_pu_c[is.na(pu_c) | pu_c <= 0]
+      df$PU_o[idx] <- pu_o
+      df$PU_h[idx] <- pu_h
+      df$PU_l[idx] <- pu_l
+      df$PU_c[idx] <- pu_c
+      df$open[idx] <- open_vec
+      df$high[idx] <- high_vec
+      df$low[idx] <- low_vec
+      df$close[idx] <- close_vec
     } else {
       multiplier <- if (prefix == "CCM") 450 else 330
       df$PU_o[idx] <- df$open[idx] * multiplier
@@ -1531,15 +1588,15 @@ if(type == "full"){
   df
 }
 
-.brf_full <- function(df){
-    if ("ticker" %in% names(df)) {
-      names(df)[names(df) == "ticker"] <- "symbol"
-    }
-    if ("date" %in% names(df)) {
-      names(df)[names(df) == "date"] <- "refdate"
-    }
-    if ("contract_code" %in% names(df)) {
-      names(df)[names(df) == "contract_code"] <- "maturity_code"
-    }
-    return(df)
+.brf_full <- function(df) {
+  if ("ticker" %in% names(df)) {
+    names(df)[names(df) == "ticker"] <- "symbol"
+  }
+  if ("date" %in% names(df)) {
+    names(df)[names(df) == "date"] <- "refdate"
+  }
+  if ("contract_code" %in% names(df)) {
+    names(df)[names(df) == "contract_code"] <- "maturity_code"
+  }
+  return(df)
 }

@@ -1,16 +1,24 @@
-# Continuous series helpers ---------------------------------------------------
-
 .brf_sanitize_ohlcv_xts <- function(x_xts) {
   if (is.null(x_xts) || NROW(x_xts) == 0) {
     return(xts::xts())
   }
   std_name <- function(nm) {
     ln <- tolower(nm)
-    if (grepl("^o(pen)?$", ln) || grepl("abert", ln)) return("Open")
-    if (grepl("^h(igh)?$", ln) || grepl("max", ln))   return("High")
-    if (grepl("^l(ow)?$", ln)  || grepl("min", ln))   return("Low")
-    if (grepl("^c(lose)?$", ln) || grepl("fech|sett(le)?|px_last|last", ln)) return("Close")
-    if (grepl("^v(ol|olume)?$", ln) || grepl("q(t)?y|contracts|neg|trades", ln)) return("Volume")
+    if (grepl("^o(pen)?$", ln) || grepl("abert", ln)) {
+      return("Open")
+    }
+    if (grepl("^h(igh)?$", ln) || grepl("max", ln)) {
+      return("High")
+    }
+    if (grepl("^l(ow)?$", ln) || grepl("min", ln)) {
+      return("Low")
+    }
+    if (grepl("^c(lose)?$", ln) || grepl("fech|sett(le)?|px_last|last", ln)) {
+      return("Close")
+    }
+    if (grepl("^v(ol|olume)?$", ln) || grepl("q(t)?y|contracts|neg|trades", ln)) {
+      return("Volume")
+    }
     nm
   }
   cn <- colnames(x_xts)
@@ -454,8 +462,10 @@ custom_roll <- function(fun,
     }
     x[, column, drop = FALSE]
   }
-  rng <- paste0(as.Date(seam_date) - window_pre, "/",
-                as.Date(seam_date) + window_post)
+  rng <- paste0(
+    as.Date(seam_date) - window_pre, "/",
+    as.Date(seam_date) + window_post
+  )
   a <- extract_price(prev_raw[rng])
   b <- extract_price(curr_raw[rng])
   if (NROW(a) > 0 && NROW(b) > 0) {
@@ -515,8 +525,13 @@ custom_roll <- function(fun,
   }
   names_lower <- tolower(names(df))
   names_map <- stats::setNames(names(df), names_lower)
-  best_name <- function(pattern) {
-    ids <- which(grepl(pattern, names_lower, ignore.case = TRUE))
+  notional_like <- grepl("(^|_)(pu|no)", names_lower)
+  best_name <- function(pattern, exclude_notional = FALSE) {
+    mask <- grepl(pattern, names_lower, ignore.case = TRUE)
+    if (exclude_notional) {
+      mask <- mask & !notional_like
+    }
+    ids <- which(mask)
     if (length(ids)) {
       return(unname(names_map[ids[1]]))
     }
@@ -524,10 +539,10 @@ custom_roll <- function(fun,
   }
   ref_col <- if ("refdate" %in% names_lower) unname(names_map["refdate"]) else best_name("ref|date|data|dt|index")
   sym_col <- if ("symbol" %in% names_lower) unname(names_map["symbol"]) else best_name("symb|ticker|contr|symbol")
-  o_col <- best_name("^open$|abert")
-  h_col <- best_name("^high$|max")
-  l_col <- best_name("^low$|min")
-  c_col <- best_name("^close$|fech|sett(le)?|px_last|last")
+  o_col <- best_name("^open$|abert", exclude_notional = TRUE)
+  h_col <- best_name("^high$|max", exclude_notional = TRUE)
+  l_col <- best_name("^low$|min", exclude_notional = TRUE)
+  c_col <- best_name("^close$|fech|sett(le)?|px_last|last", exclude_notional = TRUE)
   v_col <- if ("volume" %in% names_lower) unname(names_map["volume"]) else best_name("^vol$|volume|q(t)?y|contracts|neg|trades")
   exp_col <- if ("estimated_maturity" %in% names_lower) unname(names_map["estimated_maturity"]) else best_name("matur|expiry|venc")
   contract_col <- if ("contract_code" %in% names_lower) {
@@ -566,6 +581,13 @@ custom_roll <- function(fun,
   }
   if (!is.na(ticker_col)) {
     column_map["ticker"] <- ticker_col
+  }
+  notional_cols <- names_lower[notional_like]
+  if (length(notional_cols)) {
+    for (nm in notional_cols) {
+      src <- names_map[[nm]]
+      column_map[src] <- src
+    }
   }
   if (!is.na(settle_col)) {
     column_map["settlement_price"] <- settle_col
@@ -621,36 +643,17 @@ custom_roll <- function(fun,
   for (nm in num_cols) {
     out[[nm]] <- suppressWarnings(as.numeric(out[[nm]]))
   }
-  if ("settlement_price" %in% names(out)) {
-    needs_close <- !is.finite(out$close) | out$close <= 0
-    replaceable <- needs_close & is.finite(out$settlement_price) & out$settlement_price > 0
-    out$close[replaceable] <- out$settlement_price[replaceable]
+  has_valid_price <- (is.finite(out$close) & out$close > 0)
+  pu_cols <- grep("^pu_|_pu$|notional", names(out), value = TRUE, ignore.case = TRUE)
+  if (length(pu_cols) > 0) {
+    has_valid_pu <- rowSums(sapply(out[pu_cols], function(x) is.finite(x) & x > 0)) > 0
+    has_valid_price <- has_valid_price | has_valid_pu
   }
-  if ("average_price" %in% names(out)) {
-    needs_close <- !is.finite(out$close) | out$close <= 0
-    replaceable <- needs_close & is.finite(out$average_price) & out$average_price > 0
-    out$close[replaceable] <- out$average_price[replaceable]
-  }
-  if ("last_bid" %in% names(out)) {
-    needs_close <- !is.finite(out$close) | out$close <= 0
-    replaceable <- needs_close & is.finite(out$last_bid) & out$last_bid > 0
-    out$close[replaceable] <- out$last_bid[replaceable]
-  }
-  if ("last_ask" %in% names(out)) {
-    needs_close <- !is.finite(out$close) | out$close <= 0
-    replaceable <- needs_close & is.finite(out$last_ask) & out$last_ask > 0
-    out$close[replaceable] <- out$last_ask[replaceable]
-  }
-  for (nm in c("open", "high", "low")) {
-    if (nm %in% names(out)) {
-      needs <- !is.finite(out[[nm]]) | out[[nm]] <= 0
-      out[[nm]][needs] <- out$close[needs]
-    }
-  }
-  out <- out[!is.na(out$refdate) & !is.na(out$symbol) & !is.na(out$estimated_maturity) &
-               is.finite(out$close) & out$close > 0, , drop = FALSE]
-  out <- out[order(out$symbol, out$refdate), , drop = FALSE]
-  out
+
+  out <- out[!is.na(out$refdate) &
+    !is.na(out$symbol) &
+    !is.na(out$estimated_maturity) &
+    has_valid_price, , drop = FALSE]
 }
 
 .brf_split_contracts_xts <- function(agg_df) {
@@ -833,8 +836,7 @@ custom_roll <- function(fun,
     return(as.numeric(custom_ratios))
   }
   roll_type <- match.arg(roll_type, c("days_before_roll", "windsor_log_spread", "regression"))
-  switch(
-    roll_type,
+  switch(roll_type,
     days_before_roll = vapply(seam_idx, function(ii) as.numeric(default_ratio(ii)), numeric(1), USE.NAMES = FALSE),
     windsor_log_spread = vapply(seam_idx, windsor_ratio, numeric(1), USE.NAMES = FALSE),
     regression = vapply(seam_idx, regression_ratio, numeric(1), USE.NAMES = FALSE)
@@ -950,9 +952,9 @@ custom_roll <- function(fun,
   daily$sel_symbol <- ifelse(cond_roll, daily$next_symbol, daily$front_symbol)
   daily$primary_weight <- primary_weight
   daily$secondary_weight <- secondary_weight
-  daily$sel_open  <- blend_fn(daily$f_open,  daily$n_open)
-  daily$sel_high  <- blend_fn(daily$f_high,  daily$n_high)
-  daily$sel_low   <- blend_fn(daily$f_low,   daily$n_low)
+  daily$sel_open <- blend_fn(daily$f_open, daily$n_open)
+  daily$sel_high <- blend_fn(daily$f_high, daily$n_high)
+  daily$sel_low <- blend_fn(daily$f_low, daily$n_low)
   daily$sel_close <- blend_fn(daily$f_close, daily$n_close)
   if (has_volume_col && "f_volume" %in% names(daily) && "n_volume" %in% names(daily)) {
     daily$sel_volume <- blend_fn(daily$f_volume, daily$n_volume)
@@ -1151,7 +1153,7 @@ custom_roll <- function(fun,
 .brf_continuous_meta <- function(ticker_root) {
   r <- toupper(ticker_root)
   list(
-    tick_size     = if (r == "CCM") 0.01 else if (r == "BGI") 0.05 else 0.01,
+    tick_size = if (r == "CCM") 0.01 else if (r == "BGI") 0.05 else 0.01,
     fut_multiplier = if (r == "CCM") 450 else if (r == "BGI") 330 else 1
   )
 }
@@ -1255,8 +1257,7 @@ brf_build_continuous_series <- function(ticker_root,
       )
     )
   }
-  aggregate_raw <- switch(
-    source,
+  aggregate_raw <- switch(source,
     local = fetch_local(),
     sm_api = {
       api_res <- try(
@@ -1286,7 +1287,7 @@ brf_build_continuous_series <- function(ticker_root,
       aggregate$estimated_maturity <- as.Date(aggregate$estimated_maturity)
     }
     sym_for_maturity <- if ("ticker" %in% names(aggregate) &&
-                              any(!is.na(aggregate$ticker) & nzchar(aggregate$ticker))) {
+      any(!is.na(aggregate$ticker) & nzchar(aggregate$ticker))) {
       as.character(aggregate$ticker)
     } else {
       as.character(aggregate$symbol)
