@@ -23,7 +23,12 @@ windsor_log_spread_roll(
 spreads around the seam.}
 
 \item{roll_control}{Optional list merged into the default roll control
-settings (see [brf_build_continuous_series()]).}
+settings. Recognised entries include `price_column` (seam column),
+`target_days_to_maturity` (business-day tenor selection),
+`target_days_tolerance` (permitted deviation when searching for the target),
+`target_side` (`"nearest"`, `"forward"`, or `"backward"` preference), and
+`target_calendar` (optional `bizdays` calendar object overriding the
+package default).}
 
 \item{roll_stagger}{Number of business days used to stagger the roll.}
 

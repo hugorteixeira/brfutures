@@ -12,6 +12,7 @@ brf_build_continuous_series(
   single_xts = TRUE,
   debug = FALSE,
   everything = FALSE,
+  use_notional = FALSE,
   data_dir = NULL,
   which = c("cache", "data", "config"),
   source = c("local", "sm_api"),
@@ -44,6 +45,11 @@ annualised returns for the continuous series.}
 
 \item{everything}{When `TRUE`, return a list containing the aggregate data,
 the unadjusted series, the adjusted series, and the daily contract table.}
+
+\item{use_notional}{When `TRUE`, stitch contracts using notional columns
+(`PU_o`, `PU_h`, `PU_l`, `PU_c`), or the `NO_*` equivalents when PU fields
+are absent. The returned series keeps DI rates in the OHLC slots and adds
+the blended notional columns alongside them.}
 
 \item{data_dir}{Optional directory containing cached files for `ticker_root`.}
 
@@ -83,4 +89,10 @@ The function automatically merges legacy naming conventions from the
   `"BOI"` for `"BGI"`) are consolidated before the roll logic runs. This keeps
   historical data continuous through renames without requiring manual
   preprocessing.
+
+  Supplying `target_days_to_maturity` via `roll_control` instructs the roll
+  engine to favour contracts whose business-day tenor is closest to the
+  target. This is particularly helpful for DI futures when paired with
+  `use_notional = TRUE` and a seam column such as `"PU_c"`, yielding
+  constant-tenor notional chains suitable for backtesting.
 }

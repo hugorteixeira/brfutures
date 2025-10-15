@@ -1,4 +1,4 @@
-.brf_sanitize_ohlcv_xts <- function(x_xts) {
+.brf_sanitize_ohlcv_xts <- function(x_xts, keep_extras = NULL) {
   if (is.null(x_xts) || NROW(x_xts) == 0) {
     return(xts::xts())
   }
@@ -31,6 +31,11 @@
     colnames(x_xts) <- "Close"
   }
   keep <- intersect(c("Open", "High", "Low", "Close", "Volume"), colnames(x_xts))
+  extras <- NULL
+  if (!is.null(keep_extras) && length(keep_extras)) {
+    extras <- intersect(keep_extras, colnames(x_xts))
+  }
+  keep <- unique(c(keep, extras))
   if (!length(keep)) {
     keep <- colnames(x_xts)[1L]
     colnames(x_xts)[1L] <- "Close"
@@ -56,6 +61,15 @@
   }
   if ("Close" %in% colnames(y)) {
     y <- y[is.finite(y$Close)]
+  }
+  if (!is.null(extras) && length(extras)) {
+    missing_extra <- setdiff(extras, colnames(y))
+    if (length(missing_extra)) {
+      for (nm in missing_extra) {
+        y[, nm] <- NA_real_
+      }
+    }
+    y <- y[, unique(c(colnames(y), extras)), drop = FALSE]
   }
   y
 }
@@ -119,7 +133,11 @@
     window_post = 5L,
     min_overlap = 3L,
     winsor = c(0.05, 0.95),
-    price_column = "Close"
+    price_column = "Close",
+    target_days_to_maturity = NULL,
+    target_days_tolerance = Inf,
+    target_side = "nearest",
+    target_calendar = NULL
   )
 }
 
@@ -152,6 +170,48 @@
     merged$price_column <- defaults$price_column
   }
   merged$price_column <- merged$price_column[1L]
+  tdm <- merged$target_days_to_maturity
+  if (is.null(tdm) || !length(tdm)) {
+    merged$target_days_to_maturity <- NULL
+  } else {
+    tdm <- suppressWarnings(as.numeric(tdm[1L]))
+    if (!is.finite(tdm)) {
+      merged$target_days_to_maturity <- NULL
+    } else {
+      merged$target_days_to_maturity <- tdm
+    }
+  }
+  tol <- merged$target_days_tolerance
+  if (is.null(tol) || !length(tol)) {
+    merged$target_days_tolerance <- defaults$target_days_tolerance
+  } else {
+    tol <- suppressWarnings(as.numeric(tol[1L]))
+    if (!is.finite(tol) || tol < 0) {
+      merged$target_days_tolerance <- defaults$target_days_tolerance
+    } else {
+      merged$target_days_tolerance <- tol
+    }
+  }
+  side_opts <- c("nearest", "forward", "backward")
+  side_val <- merged$target_side
+  if (!is.character(side_val) || !length(side_val)) {
+    merged$target_side <- defaults$target_side
+  } else {
+    idx <- pmatch(tolower(side_val[1L]), side_opts)
+    if (is.na(idx)) {
+      merged$target_side <- defaults$target_side
+    } else {
+      merged$target_side <- side_opts[idx]
+    }
+  }
+  cal_val <- merged$target_calendar
+  if (is.null(cal_val)) {
+    merged$target_calendar <- defaults$target_calendar
+  } else if (is.list(cal_val) && length(cal_val)) {
+    merged$target_calendar <- cal_val[[1L]]
+  } else {
+    merged$target_calendar <- cal_val
+  }
   merged
 }
 
@@ -332,7 +392,12 @@
 #' @param days_before_expiry Business days prior to expiry to begin rolling.
 #' @param clamp_ratio Lower/upper bounds applied to seam ratios.
 #' @param roll_control Optional list merged into the default roll control
-#'   settings (see [brf_build_continuous_series()]).
+#'   settings. Recognised entries include `price_column` (seam column),
+#'   `target_days_to_maturity` (business-day tenor selection),
+#'   `target_days_tolerance` (permitted deviation when searching for the target),
+#'   `target_side` (`"nearest"`, `"forward"`, or `"backward"` preference), and
+#'   `target_calendar` (optional `bizdays` calendar object overriding the
+#'   package default).
 #' @param roll_stagger Number of business days used to stagger the roll.
 #' @param contract_ranks Which contract ranks to stitch (defaults to front/next).
 #' @param include_roll_details When `TRUE`, enrich the daily output with roll
@@ -845,6 +910,66 @@ custom_roll <- function(fun,
   )
 }
 
+.brf_rank_by_target_tenor <- function(days_vec,
+                                      target,
+                                      side = c("nearest", "forward", "backward"),
+                                      tolerance = Inf) {
+  n <- length(days_vec)
+  ranks <- rep.int(NA_integer_, n)
+  if (!n) {
+    return(ranks)
+  }
+  if (!is.finite(target)) {
+    return(ranks)
+  }
+  side <- match.arg(side)
+  tol <- tolerance
+  if (!is.finite(tol) || tol < 0) {
+    tol <- Inf
+  }
+  finite_idx <- which(is.finite(days_vec))
+  if (!length(finite_idx)) {
+    return(ranks)
+  }
+  candidate_idx <- finite_idx[abs(days_vec[finite_idx] - target) <= tol]
+  if (!length(candidate_idx)) {
+    candidate_idx <- finite_idx
+  }
+  if (side == "forward") {
+    forward_idx <- candidate_idx[days_vec[candidate_idx] >= target]
+    if (length(forward_idx)) {
+      candidate_idx <- forward_idx
+    }
+  } else if (side == "backward") {
+    backward_idx <- candidate_idx[days_vec[candidate_idx] <= target]
+    if (length(backward_idx)) {
+      candidate_idx <- backward_idx
+    }
+  }
+  order_candidate <- candidate_idx[
+    order(
+      abs(days_vec[candidate_idx] - target),
+      days_vec[candidate_idx],
+      na.last = NA
+    )
+  ]
+  if (length(order_candidate)) {
+    ranks[order_candidate] <- seq_along(order_candidate)
+  }
+  remaining <- setdiff(finite_idx, order_candidate)
+  if (length(remaining)) {
+    order_remaining <- remaining[
+      order(
+        abs(days_vec[remaining] - target),
+        days_vec[remaining],
+        na.last = NA
+      )
+    ]
+    ranks[order_remaining] <- seq_along(order_remaining) + length(order_candidate)
+  }
+  ranks
+}
+
 .brf_build_daily_front_chain <- function(agg_df,
                                          roll_days_before_expiry = 20,
                                          clamp_ratio = c(0.6, 1.6),
@@ -853,25 +978,80 @@ custom_roll <- function(fun,
                                          roll_control = NULL,
                                          include_roll_details = FALSE,
                                          contract_ranks = NULL,
-                                         roll_stagger = 1L) {
+                                         roll_stagger = 1L,
+                                         use_notional = FALSE) {
   rc <- .brf_normalize_roll_control(roll_control)
   ranks <- .brf_normalize_contract_ranks(contract_ranks)
   ordered <- agg_df[order(agg_df$symbol, agg_df$refdate), , drop = FALSE]
   dup_mask <- !duplicated(ordered[, c("symbol", "refdate")], fromLast = TRUE)
   PX <- ordered[dup_mask, , drop = FALSE]
+  if (isTRUE(use_notional)) {
+    pick_notional <- function(df, prefix) {
+      expected <- paste0(prefix, "_", c("o", "h", "l", "c"))
+      names_lower <- tolower(names(df))
+      idx <- match(expected, names_lower)
+      if (anyNA(idx)) {
+        return(NULL)
+      }
+      stats::setNames(names(df)[idx], c("open", "high", "low", "close"))
+    }
+    notional_map <- pick_notional(PX, "pu")
+    if (is.null(notional_map)) {
+      notional_map <- pick_notional(PX, "no")
+    }
+    if (is.null(notional_map)) {
+      stop(
+        "use_notional = TRUE but no PU_* or NO_* columns were found in the aggregate data.",
+        call. = FALSE
+      )
+    }
+    for (nm in names(notional_map)) {
+      src <- notional_map[[nm]]
+      PX[[nm]] <- suppressWarnings(as.numeric(PX[[src]]))
+    }
+  }
   if (!"volume" %in% names(PX)) {
     PX$volume <- NA_real_
   }
   PX$refdate <- as.Date(PX$refdate)
   PX <- PX[order(PX$refdate, PX$estimated_maturity, PX$symbol), , drop = FALSE]
-  PX$rnk <- ave(
-    PX$estimated_maturity,
-    PX$refdate,
-    FUN = function(x) {
-      ranks <- rank(x, ties.method = "min", na.last = "keep")
-      as.integer(ranks)
+  PX$days_to_maturity <- suppressWarnings(as.numeric(PX$estimated_maturity - PX$refdate))
+  target_days <- rc$target_days_to_maturity
+  if (!is.null(target_days) && is.finite(target_days)) {
+    cal_obj <- rc$target_calendar
+    if (!inherits(cal_obj, "Calendar")) {
+      cal_obj <- .brf_get_calendar()
     }
-  )
+    biz_diff <- tryCatch(
+      suppressWarnings(bizdays::bizdays(PX$refdate, PX$estimated_maturity, cal_obj)),
+      error = function(...) rep(NA_real_, nrow(PX))
+    )
+    if (length(biz_diff) == nrow(PX) && any(is.finite(biz_diff))) {
+      PX$days_to_maturity[is.finite(biz_diff)] <- as.numeric(biz_diff[is.finite(biz_diff)])
+    }
+    PX$rnk <- ave(
+      PX$days_to_maturity,
+      PX$refdate,
+      FUN = function(days_vec) {
+        .brf_rank_by_target_tenor(
+          days_vec,
+          target = target_days,
+          side = rc$target_side,
+          tolerance = rc$target_days_tolerance
+        )
+      }
+    )
+  } else {
+    PX$rnk <- ave(
+      PX$estimated_maturity,
+      PX$refdate,
+      FUN = function(x) {
+        ranks <- rank(x, ties.method = "min", na.last = "keep")
+        as.integer(ranks)
+      }
+    )
+  }
+  PX$rnk <- as.integer(PX$rnk)
   required_prices <- c("open", "high", "low", "close")
   missing_prices <- setdiff(required_prices, names(PX))
   if (length(missing_prices)) {
@@ -890,6 +1070,9 @@ custom_roll <- function(fun,
   if (length(notional_cols)) {
     value_cols <- unique(c(value_cols, notional_cols))
   }
+  if ("days_to_maturity" %in% names(PX)) {
+    value_cols <- unique(c(value_cols, "days_to_maturity"))
+  }
   front <- PX[PX$rnk == ranks$primary, c("refdate", "symbol", value_cols), drop = FALSE]
   front_names <- c("refdate", "front_symbol", paste0("f_", value_cols))
   names(front) <- front_names
@@ -901,6 +1084,9 @@ custom_roll <- function(fun,
   daily <- merge(front, nextc, by = "refdate", all.x = TRUE, sort = TRUE)
   daily$front_rank <- ranks$primary
   daily$secondary_rank <- ranks$secondary
+  if (!is.null(target_days) && is.finite(target_days)) {
+    daily$target_days_to_maturity <- target_days
+  }
   days_by_symbol <- tapply(PX$refdate, PX$symbol, function(x) sort(unique(as.Date(x))), simplify = FALSE)
   maturity_by_symbol <- sapply(split(PX$estimated_maturity, PX$symbol), function(x) {
     vals <- unique(na.omit(x))
@@ -1007,9 +1193,10 @@ custom_roll <- function(fun,
   )
   colnames(mat) <- unname(unlist(sel_map))
   no_adj <- xts::xts(mat, order.by = daily$refdate)
-  no_adj <- .brf_sanitize_ohlcv_xts(no_adj)
+  extra_keep_noadj <- setdiff(colnames(no_adj), c("Open", "High", "Low", "Close", "Volume"))
+  no_adj <- .brf_sanitize_ohlcv_xts(no_adj, keep_extras = extra_keep_noadj)
   no_adj <- .brf_xts_deduplicate_daily_last(no_adj)
-  parts <- .brf_split_contracts_xts(agg_df)
+  parts <- .brf_split_contracts_xts(PX)
   lst_xts <- parts$lst_xts
   sym_vec <- daily$sel_symbol
   dates <- daily$refdate
@@ -1050,6 +1237,14 @@ custom_roll <- function(fun,
     colnames(adj_vals) <- colnames(no_adj)
     price_cols <- intersect(c("Open", "High", "Low", "Close"), colnames(no_adj))
     vol_col <- if (has_vol) match("Volume", colnames(no_adj)) else NA_integer_
+    notional_idx <- integer(0)
+    if (isTRUE(use_notional) && NCOL(no_adj)) {
+      nm_lower <- tolower(colnames(no_adj))
+      notional_idx <- which(grepl("^(pu|no|notional)_(o|open|h|high|l|low|c|close)$", nm_lower))
+      if (length(notional_idx)) {
+        notional_idx <- notional_idx[notional_idx > 0L]
+      }
+    }
     for (k in seq_len(nseg)) {
       i_start <- seg_starts[k]
       i_end <- if (k < nseg) (seg_starts[k + 1] - 1L) else length(dates)
@@ -1060,6 +1255,9 @@ custom_roll <- function(fun,
           pc_idx <- match(price_cols, colnames(no_adj))
           adj_vals[rows, pc_idx] <- adj_vals[rows, pc_idx] * f[k]
         }
+        if (length(notional_idx)) {
+          adj_vals[rows, notional_idx] <- adj_vals[rows, notional_idx] * f[k]
+        }
         if (length(vol_col) == 1L && !is.na(vol_col)) {
           adj_vals[rows, vol_col] <- as.matrix(no_adj[rows, vol_col])
         }
@@ -1067,8 +1265,130 @@ custom_roll <- function(fun,
     }
     adj <- xts::xts(adj_vals, order.by = zoo::index(no_adj))
   }
-  adj <- .brf_sanitize_ohlcv_xts(adj)
+  extra_keep_adj <- setdiff(colnames(adj), c("Open", "High", "Low", "Close", "Volume"))
+  adj <- .brf_sanitize_ohlcv_xts(adj, keep_extras = extra_keep_adj)
   adj <- .brf_xts_deduplicate_daily_last(adj)
+  if (isTRUE(use_notional)) {
+    target_const <- if (!is.null(target_days) && is.finite(target_days) && target_days > 0) {
+      as.numeric(target_days)
+    } else {
+      NA_real_
+    }
+    tenor_lookup <- NULL
+    if ("sel_days_to_maturity" %in% names(daily)) {
+      tenor_lookup <- stats::setNames(
+        as.numeric(daily$sel_days_to_maturity),
+        as.character(daily$refdate)
+      )
+    }
+    convert_di_chain <- function(x_xts, cm_source = NULL) {
+      if (!xts::is.xts(x_xts) || !NROW(x_xts)) {
+        return(x_xts)
+      }
+      idx_chr <- as.character(as.Date(zoo::index(x_xts)))
+      idx_ref <- zoo::index(x_xts)
+      len_idx <- length(idx_chr)
+      n_actual <- rep(NA_real_, len_idx)
+      if (!is.null(tenor_lookup)) {
+        matched <- tenor_lookup[idx_chr]
+        n_actual[!is.na(matched)] <- matched[!is.na(matched)]
+      }
+      n_for_rate <- n_actual
+      if (is.finite(target_const)) {
+        n_for_rate[] <- target_const
+        n_for_rate[!is.finite(n_for_rate)] <- target_const
+      }
+      extract_numeric <- function(obj, candidates, default = NA_real_) {
+        if (!xts::is.xts(obj) || !NROW(obj)) {
+          return(rep(default, len_idx))
+        }
+        cn <- tolower(colnames(obj))
+        idx <- match(tolower(candidates), cn, nomatch = 0L)
+        idx <- idx[idx > 0L]
+        if (!length(idx)) {
+          return(rep(default, len_idx))
+        }
+        series <- obj[, idx[1L], drop = FALSE]
+        aligned <- suppressWarnings(series[idx_ref])
+        vals <- as.numeric(aligned)
+        if (!length(vals)) {
+          return(rep(default, len_idx))
+        }
+        if (length(vals) < len_idx) {
+          vals <- rep_len(vals, len_idx)
+        }
+        vals
+      }
+      to_numeric_col <- function(candidates, default = NA_real_) {
+        if (!length(candidates)) {
+          return(rep(default, len_idx))
+        }
+        extract_numeric(x_xts, candidates, default = default)
+      }
+      pu_open <- to_numeric_col(c("pu_o", "no_o"), default = NA_real_)
+      pu_high <- to_numeric_col(c("pu_h", "no_h"), default = NA_real_)
+      pu_low <- to_numeric_col(c("pu_l", "no_l"), default = NA_real_)
+      pu_close <- to_numeric_col(c("pu_c", "no_c"), default = NA_real_)
+      if (all(is.na(pu_open))) {
+        pu_open <- if ("Open" %in% colnames(x_xts)) as.numeric(x_xts[, "Open"]) else rep(NA_real_, length(idx_chr))
+      }
+      if (all(is.na(pu_high))) {
+        pu_high <- if ("High" %in% colnames(x_xts)) as.numeric(x_xts[, "High"]) else rep(NA_real_, length(idx_chr))
+      }
+      if (all(is.na(pu_low))) {
+        pu_low <- if ("Low" %in% colnames(x_xts)) as.numeric(x_xts[, "Low"]) else rep(NA_real_, length(idx_chr))
+      }
+      if (all(is.na(pu_close))) {
+        pu_close <- if ("Close" %in% colnames(x_xts)) as.numeric(x_xts[, "Close"]) else rep(NA_real_, length(idx_chr))
+      }
+      to_rate <- function(pu_vals) {
+        rates <- rep(NA_real_, length(pu_vals))
+        valid <- is.finite(pu_vals) & is.finite(n_for_rate) & n_for_rate > 0
+        if (any(valid)) {
+          rates[valid] <- .di_rate_from_pu(pu_vals[valid], n_for_rate[valid])
+        }
+        rates
+      }
+      cm_reference <- if (xts::is.xts(cm_source) && NROW(cm_source)) cm_source else x_xts
+      cm_open_pu <- extract_numeric(cm_reference, c("pu_o", "no_o"), default = pu_open)
+      cm_high_pu <- extract_numeric(cm_reference, c("pu_h", "no_h"), default = pu_high)
+      cm_low_pu <- extract_numeric(cm_reference, c("pu_l", "no_l"), default = pu_low)
+      cm_close_pu <- extract_numeric(cm_reference, c("pu_c", "no_c"), default = pu_close)
+      rate_open <- to_rate(cm_open_pu)
+      rate_high <- to_rate(cm_high_pu)
+      rate_low <- to_rate(cm_low_pu)
+      rate_close <- to_rate(cm_close_pu)
+      x_xts$PU_o <- pu_open
+      x_xts$PU_h <- pu_high
+      x_xts$PU_l <- pu_low
+      x_xts$PU_c <- pu_close
+      x_xts$CM_o <- rate_open
+      x_xts$CM_h <- rate_high
+      x_xts$CM_l <- rate_low
+      x_xts$CM_c <- rate_close
+      if ("days_to_maturity" %in% colnames(x_xts)) {
+        nm <- colnames(x_xts)
+        nm[nm == "days_to_maturity"] <- "DaysToMaturity"
+        colnames(x_xts) <- nm
+      }
+      drop_candidates <- grep("^(pu|no)_", tolower(colnames(x_xts)), value = TRUE)
+      if (length(drop_candidates)) {
+        keep_cols <- setdiff(colnames(x_xts), drop_candidates)
+        x_xts <- x_xts[, keep_cols, drop = FALSE]
+      }
+      ordered <- c(
+        "Open", "High", "Low", "Close", "Volume",
+        "PU_o", "PU_h", "PU_l", "PU_c",
+        "CM_o", "CM_h", "CM_l", "CM_c",
+        "DaysToMaturity"
+      )
+      present <- intersect(ordered, colnames(x_xts))
+      remainder <- setdiff(colnames(x_xts), present)
+      x_xts[, c(present, remainder), drop = FALSE]
+    }
+    no_adj <- convert_di_chain(no_adj)
+    adj <- convert_di_chain(adj, cm_source = no_adj)
+  }
   if (isTRUE(include_roll_details)) {
     daily <- .brf_enrich_roll_details(daily, seam_idx, r_list, rc)
   }
@@ -1184,6 +1504,10 @@ custom_roll <- function(fun,
 #'   annualised returns for the continuous series.
 #' @param everything When `TRUE`, return a list containing the aggregate data,
 #'   the unadjusted series, the adjusted series, and the daily contract table.
+#' @param use_notional When `TRUE`, stitch contracts using notional columns
+#'   (`PU_o`, `PU_h`, `PU_l`, `PU_c`), or the `NO_*` equivalents when PU fields
+#'   are absent. The returned series keeps DI rates in the OHLC slots and adds
+#'   the blended notional columns alongside them.
 #' @param data_dir Optional directory containing cached files for `ticker_root`.
 #' @param which Storage location passed to [tools::R_user_dir()] when
 #'   `data_dir` is `NULL`.
@@ -1207,6 +1531,12 @@ custom_roll <- function(fun,
 #'   historical data continuous through renames without requiring manual
 #'   preprocessing.
 #'
+#'   Supplying `target_days_to_maturity` via `roll_control` instructs the roll
+#'   engine to favour contracts whose business-day tenor is closest to the
+#'   target. This is particularly helpful for DI futures when paired with
+#'   `use_notional = TRUE` and a seam column such as `"PU_c"`, yielding
+#'   constant-tenor notional chains suitable for backtesting.
+#'
 #' @return By default, invisibly returns an xts object. When `single_xts` is
 #'   `FALSE`, returns a named list containing the requested series; when
 #'   `everything` is `TRUE`, returns a list with the aggregate data, the
@@ -1220,6 +1550,7 @@ brf_build_continuous_series <- function(ticker_root,
                                         single_xts = TRUE,
                                         debug = FALSE,
                                         everything = FALSE,
+                                        use_notional = FALSE,
                                         data_dir = NULL,
                                         which = c("cache", "data", "config"),
                                         source = c("local", "sm_api"),
@@ -1325,7 +1656,8 @@ brf_build_continuous_series <- function(ticker_root,
     roll_control = roll_control,
     include_roll_details = include_roll_details,
     contract_ranks = contract_ranks,
-    roll_stagger = roll_stagger
+    roll_stagger = roll_stagger,
+    use_notional = use_notional
   )
   no_adj <- chain$no_adj
   adj <- chain$adj
