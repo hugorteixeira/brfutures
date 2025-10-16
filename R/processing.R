@@ -1197,6 +1197,24 @@ custom_roll <- function(fun,
   no_adj <- .brf_sanitize_ohlcv_xts(no_adj, keep_extras = extra_keep_noadj)
   no_adj <- .brf_xts_deduplicate_daily_last(no_adj)
   parts <- .brf_split_contracts_xts(PX)
+  if (NROW(no_adj)) {
+    daily_dates <- as.Date(daily$refdate)
+    keep_daily <- !duplicated(daily_dates, fromLast = TRUE)
+    if (!all(keep_daily)) {
+      daily <- daily[keep_daily, , drop = FALSE]
+      daily_dates <- daily_dates[keep_daily]
+    }
+    idx_match <- match(as.Date(zoo::index(no_adj)), daily_dates)
+    if (anyNA(idx_match)) {
+      stop(
+        "Unable to align sanitized prices with the daily table (missing refdate rows after deduplication).",
+        call. = FALSE
+      )
+    }
+    daily <- daily[idx_match, , drop = FALSE]
+  } else {
+    daily <- daily[0, , drop = FALSE]
+  }
   lst_xts <- parts$lst_xts
   sym_vec <- daily$sel_symbol
   dates <- daily$refdate
@@ -1531,6 +1549,11 @@ custom_roll <- function(fun,
 #'   historical data continuous through renames without requiring manual
 #'   preprocessing.
 #'
+#'   Internally the function dispatches to contract-family specific builders
+#'   (`BGI`, `CCM`, `DI`, `WDO`, `WIN`) while falling back to a generic handler
+#'   for other roots, allowing product tweaks without affecting unrelated
+#'   series.
+#'
 #'   Supplying `target_days_to_maturity` via `roll_control` instructs the roll
 #'   engine to favour contracts whose business-day tenor is closest to the
 #'   target. This is particularly helpful for DI futures when paired with
@@ -1560,19 +1583,6 @@ brf_build_continuous_series <- function(ticker_root,
   source <- match.arg(source)
   build_type <- match.arg(build_type)
   roll_spec <- .brf_resolve_roll_spec(roll_type)
-  roll_type_internal <- roll_spec$roll_type
-  roll_days_before_expiry <- roll_spec$roll_days_before_expiry
-  clamp_ratio <- roll_spec$clamp_ratio
-  roll_control <- roll_spec$roll_control
-  roll_stagger <- roll_spec$roll_stagger
-  contract_ranks <- roll_spec$contract_ranks
-  include_roll_details <- roll_spec$include_roll_details
-  if (is.character(roll_type_internal)) {
-    roll_type_internal <- match.arg(roll_type_internal, c("days_before_roll", "windsor_log_spread", "regression"))
-  } else if (!is.function(roll_type_internal)) {
-    stop("roll_type must be a recognised identifier or a custom function.", call. = FALSE)
-  }
-  contract_ranks <- .brf_normalize_contract_ranks(contract_ranks)
   normalized <- .brf_normalize_ticker_root(ticker_root)
   normalized <- normalized[!is.na(normalized)]
   if (!length(normalized)) {
@@ -1612,130 +1622,19 @@ brf_build_continuous_series <- function(ticker_root,
       }
     }
   )
-  aggregate <- .brf_prepare_continuous_aggregate(aggregate_raw, ticker_root_norm)
-  if (isTRUE(include_older)) {
-    aggregate <- .brf_normalize_older_contracts(aggregate)
-    if (!inherits(aggregate$estimated_maturity, "Date")) {
-      aggregate$estimated_maturity <- as.Date(aggregate$estimated_maturity)
-    }
-    sym_for_maturity <- if ("ticker" %in% names(aggregate) &&
-      any(!is.na(aggregate$ticker) & nzchar(aggregate$ticker))) {
-      as.character(aggregate$ticker)
-    } else {
-      as.character(aggregate$symbol)
-    }
-    valid_sym <- !is.na(sym_for_maturity) & nzchar(sym_for_maturity)
-    missing_idx <- which(is.na(aggregate$estimated_maturity) & valid_sym)
-    if (length(missing_idx)) {
-      calendar_name <- .brf_get_calendar()
-      unique_syms <- unique(sym_for_maturity[missing_idx])
-      unique_syms <- unique_syms[!is.na(unique_syms) & nzchar(unique_syms)]
-      if (length(unique_syms)) {
-        est_map <- stats::setNames(
-          vapply(
-            unique_syms,
-            function(sym) .brf_estimate_maturity(sym, calendar_name = calendar_name),
-            FUN.VALUE = as.Date(NA)
-          ),
-          unique_syms
-        )
-        aggregate$estimated_maturity[missing_idx] <- est_map[sym_for_maturity[missing_idx]]
-      }
-    }
-  }
-  aggregate <- .brf_filter_by_maturity(aggregate, maturities)
-  if (!nrow(aggregate)) {
-    stop("No data available after applying the requested maturities.", call. = FALSE)
-  }
-  chain <- .brf_build_daily_front_chain(
-    aggregate,
-    roll_days_before_expiry = roll_days_before_expiry,
-    clamp_ratio = clamp_ratio,
-    roll_type = roll_type_internal,
-    adjust_type = build_type,
-    roll_control = roll_control,
-    include_roll_details = include_roll_details,
-    contract_ranks = contract_ranks,
-    roll_stagger = roll_stagger,
-    use_notional = use_notional
+  builder <- .brf_select_continuous_builder(ticker_root_norm)
+  ctx <- list(
+    ticker_root = ticker_root_norm,
+    aggregate_raw = aggregate_raw,
+    roll_spec = roll_spec,
+    build_type = build_type,
+    adjusted = adjusted,
+    single_xts = single_xts,
+    debug = debug,
+    everything = everything,
+    use_notional = use_notional,
+    include_older = include_older,
+    maturities = maturities
   )
-  no_adj <- chain$no_adj
-  adj <- chain$adj
-  daily <- chain$daily_table
-  no_adj <- .brf_xts_force_tz(no_adj)
-  adj <- .brf_xts_force_tz(adj)
-  if (!is.null(daily) && NROW(daily)) {
-    daily$refdate <- .brf_to_posix_br_tz(daily$refdate)
-    daily <- as.data.frame(daily)
-  } else {
-    daily <- data.frame()
-  }
-  aggregate$refdate <- .brf_to_posix_br_tz(aggregate$refdate)
-  meta <- .brf_continuous_meta(ticker_root_norm)
-  attr(no_adj, "fut_tick_size") <- meta$tick_size
-  attr(no_adj, "fut_multiplier") <- meta$fut_multiplier
-  attr(adj, "fut_tick_size") <- meta$tick_size
-  attr(adj, "fut_multiplier") <- meta$fut_multiplier
-  no_adj <- .brf_append_return_columns(no_adj)
-  adj <- .brf_append_return_columns(adj)
-  if (isTRUE(debug)) {
-    adj_disc <- as.numeric(adj$Discrete)
-    adj_log <- as.numeric(adj$Log)
-    no_adj_disc <- as.numeric(no_adj$Discrete)
-    no_adj_log <- as.numeric(no_adj$Log)
-    adj_summary <- sprintf(
-      "Adjusted cumulative: %.2f%% | annualised: %.2f%%",
-      .brf_cumulative_return(adj_disc) * 100,
-      .brf_annualized_return(adj_disc) * 100
-    )
-    adj_summary_log <- sprintf(
-      "Adjusted log cumulative: %.2f%% | annualised: %.2f%%",
-      .brf_cumulative_return(adj_log) * 100,
-      .brf_annualized_return(adj_log) * 100
-    )
-    no_adj_summary <- sprintf(
-      "Unadjusted cumulative: %.2f%% | annualised: %.2f%%",
-      .brf_cumulative_return(no_adj_disc) * 100,
-      .brf_annualized_return(no_adj_disc) * 100
-    )
-    no_adj_summary_log <- sprintf(
-      "Unadjusted log cumulative: %.2f%% | annualised: %.2f%%",
-      .brf_cumulative_return(no_adj_log) * 100,
-      .brf_annualized_return(no_adj_log) * 100
-    )
-    message(
-      paste(
-        "Continuous series summary for", ticker_root_norm, "with",
-        roll_days_before_expiry, "roll-day window:",
-        adj_summary,
-        adj_summary_log,
-        no_adj_summary,
-        no_adj_summary_log,
-        sep = "\n  "
-      )
-    )
-  }
-  if (isTRUE(everything)) {
-    result <- list(
-      aggregate = aggregate,
-      no_adj = no_adj,
-      adj = adj,
-      daily = daily
-    )
-    return(invisible(result))
-  }
-  if (!isTRUE(single_xts)) {
-    if (isTRUE(adjusted)) {
-      name_adj <- paste0(ticker_root_norm, "FUT_adj_roll", roll_days_before_expiry)
-      result_adj <- stats::setNames(list(adj), name_adj)
-      return(invisible(result_adj))
-    }
-    name_noadj <- paste0(ticker_root_norm, "FUT_noadj_roll", roll_days_before_expiry)
-    result_noadj <- stats::setNames(list(no_adj), name_noadj)
-    return(invisible(result_noadj))
-  }
-  if (isTRUE(adjusted)) {
-    return(invisible(adj))
-  }
-  invisible(no_adj)
+  builder(ctx)
 }

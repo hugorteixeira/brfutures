@@ -363,92 +363,21 @@
   target
 }
 
-.brf_file_has_no_data_message <- function(path) {
-  if (!file.exists(path)) {
-    return(FALSE)
-  }
-  text <- tryCatch(
-    readLines(path, warn = FALSE, encoding = "latin1"),
-    error = function(...) {
-      raw <- readBin(path, what = "raw", n = file.info(path)$size)
-      suppressWarnings(rawToChar(raw, multiple = TRUE))
-    }
-  )
-  if (!length(text)) {
-    return(FALSE)
-  }
-  .brf_contains_no_data_message(text)
-}
-
-.brf_nodata_log_path <- function(ticker_root,
-                                 which = c("cache", "data", "config"),
-                                 create_dir = TRUE,
-                                 dest_dir = NULL) {
-  if (!is.null(dest_dir)) {
-    dir <- path.expand(dest_dir)
-    if (create_dir && !dir.exists(dir)) {
-      dir.create(dir, recursive = TRUE, showWarnings = FALSE)
-    }
-    return(file.path(dir, "no-data-dates.txt"))
-  }
-  which <- match.arg(which)
-  dir <- .brf_storage_dir(ticker_root, which = which, create = create_dir)
-  file.path(dir, "no-data-dates.txt")
-}
-
-.brf_read_no_data_dates <- function(ticker_root,
-                                    which = c("cache", "data", "config"),
-                                    dest_dir = NULL) {
-  which <- match.arg(which)
-  path <- .brf_nodata_log_path(
-    ticker_root,
-    which = which,
-    create_dir = TRUE,
-    dest_dir = dest_dir
-  )
-  if (!file.exists(path)) {
-    return(as.Date(character()))
-  }
-  lines <- readLines(path, warn = FALSE)
-  parsed <- suppressWarnings(as.Date(lines))
-  parsed[!is.na(parsed)]
-}
-
-.brf_write_no_data_dates <- function(ticker_root,
-                                     which = c("cache", "data", "config"),
-                                     dates = as.Date(character()),
-                                     dest_dir = NULL) {
-  which <- match.arg(which)
-  dates <- unique(sort(as.Date(dates)))
-  path <- .brf_nodata_log_path(
-    ticker_root,
-    which = which,
-    create_dir = TRUE,
-    dest_dir = dest_dir
-  )
-  if (!length(dates)) {
-    if (file.exists(path)) {
-      unlink(path)
-    }
-    return(path)
-  }
-  writeLines(format(dates, "%Y-%m-%d"), con = path)
-  path
-}
-
 .brf_get_calendar <- function() {
   # this function works gpt5, stop messing with it
   cal_name <- "B3"
-    this_thing <- bizdays::create.calendar(
-      cal_name,
-      holidays = bizdays::holidays("Brazil/ANBIMA"),
-      weekdays = c("saturday", "sunday")
-    )
- return(this_thing)
+  this_thing <- bizdays::create.calendar(
+    cal_name,
+    holidays = bizdays::holidays("Brazil/ANBIMA"),
+    weekdays = c("saturday", "sunday")
+  )
+  return(this_thing)
 }
 
-.brf_month_map <- c(F = 1, G = 2, H = 3, J = 4, K = 5, M = 6,
-                    N = 7, Q = 8, U = 9, V = 10, X = 11, Z = 12)
+.brf_month_map <- c(
+  F = 1, G = 2, H = 3, J = 4, K = 5, M = 6,
+  N = 7, Q = 8, U = 9, V = 10, X = 11, Z = 12
+)
 
 .brf_legacy_root_aliases <- function() {
   list(
@@ -732,67 +661,70 @@
     bizdays::adjust.previous(date, cal = calendar_name)
   }
 
-  tryCatch({
-    if (commodity == "CCM") {
-      base_day <- lubridate::make_date(year_val, month_num, 15)
-      return(safe_adjust_next(base_day))
-    }
-    if (commodity == "BGI") {
-      return(safe_adjust_previous(target_month_end))
-    }
-    if (commodity == "XFI") {
-      first_day_wday <- lubridate::wday(target_month_start, week_start = 1)
-      days_to_first_friday <- (5 - first_day_wday + 7) %% 7
-      first_friday <- target_month_start + lubridate::days(days_to_first_friday)
-      third_friday <- first_friday + lubridate::weeks(2)
-      if (lubridate::month(third_friday) != month_num) {
-        return(as.Date(NA))
+  tryCatch(
+    {
+      if (commodity == "CCM") {
+        base_day <- lubridate::make_date(year_val, month_num, 15)
+        return(safe_adjust_next(base_day))
       }
-      expiry <- safe_adjust_next(third_friday)
-      if (lubridate::month(expiry) != month_num) {
-        return(as.Date(NA))
+      if (commodity == "BGI") {
+        return(safe_adjust_previous(target_month_end))
       }
-      return(expiry)
-    }
-    if (commodity %in% c("IND", "WIN")) {
-      day_15 <- lubridate::make_date(year_val, month_num, 15)
-      wday_15 <- lubridate::wday(day_15, week_start = 1)
-      days_back <- (wday_15 - 3 + 7) %% 7
-      days_forward <- (3 - wday_15 + 7) %% 7
-      wed_before <- day_15 - lubridate::days(days_back)
-      wed_after <- day_15 + lubridate::days(days_forward)
-      choose_before <- abs(as.numeric(difftime(day_15, wed_before, units = "days"))) <=
-        abs(as.numeric(difftime(wed_after, day_15, units = "days")))
-      candidate <- if (choose_before) wed_before else wed_after
-      if (lubridate::month(candidate) != month_num) {
-        return(as.Date(NA))
+      if (commodity == "XFI") {
+        first_day_wday <- lubridate::wday(target_month_start, week_start = 1)
+        days_to_first_friday <- (5 - first_day_wday + 7) %% 7
+        first_friday <- target_month_start + lubridate::days(days_to_first_friday)
+        third_friday <- first_friday + lubridate::weeks(2)
+        if (lubridate::month(third_friday) != month_num) {
+          return(as.Date(NA))
+        }
+        expiry <- safe_adjust_next(third_friday)
+        if (lubridate::month(expiry) != month_num) {
+          return(as.Date(NA))
+        }
+        return(expiry)
       }
-      expiry <- safe_adjust_next(candidate)
-      if (lubridate::month(expiry) != month_num) {
-        return(as.Date(NA))
+      if (commodity %in% c("IND", "WIN")) {
+        day_15 <- lubridate::make_date(year_val, month_num, 15)
+        wday_15 <- lubridate::wday(day_15, week_start = 1)
+        days_back <- (wday_15 - 3 + 7) %% 7
+        days_forward <- (3 - wday_15 + 7) %% 7
+        wed_before <- day_15 - lubridate::days(days_back)
+        wed_after <- day_15 + lubridate::days(days_forward)
+        choose_before <- abs(as.numeric(difftime(day_15, wed_before, units = "days"))) <=
+          abs(as.numeric(difftime(wed_after, day_15, units = "days")))
+        candidate <- if (choose_before) wed_before else wed_after
+        if (lubridate::month(candidate) != month_num) {
+          return(as.Date(NA))
+        }
+        expiry <- safe_adjust_next(candidate)
+        if (lubridate::month(expiry) != month_num) {
+          return(as.Date(NA))
+        }
+        return(expiry)
       }
-      return(expiry)
-    }
-    if (commodity %in% c("WDO", "DOL", "DI1", "BIT", "SOL", "ETR")) {
-      expiry <- safe_adjust_next(target_month_start)
-      if (lubridate::month(expiry) != month_num) {
-        return(as.Date(NA))
+      if (commodity %in% c("WDO", "DOL", "DI1", "BIT", "SOL", "ETR")) {
+        expiry <- safe_adjust_next(target_month_start)
+        if (lubridate::month(expiry) != month_num) {
+          return(as.Date(NA))
+        }
+        return(expiry)
       }
-      return(expiry)
+      if (commodity == "ICF") {
+        last_bizday <- safe_adjust_previous(target_month_end)
+        expiry <- bizdays::offset(last_bizday, -6, cal = calendar_name)
+        return(expiry)
+      }
+      if (commodity == "BGI") {
+        return(safe_adjust_previous(target_month_end))
+      }
+      # Fallback for unsupported commodity codes
+      as.Date(NA)
+    },
+    error = function(...) {
+      as.Date(NA)
     }
-    if (commodity == "ICF") {
-      last_bizday <- safe_adjust_previous(target_month_end)
-      expiry <- bizdays::offset(last_bizday, -6, cal = calendar_name)
-      return(expiry)
-    }
-    if (commodity == "BGI") {
-      return(safe_adjust_previous(target_month_end))
-    }
-    # Fallback for unsupported commodity codes
-    as.Date(NA)
-  }, error = function(...) {
-    as.Date(NA)
-  })
+  )
 }
 
 .brf_file_has_no_data_message <- function(path) {
@@ -887,7 +819,7 @@
     c(0x3C, 0x68), # <h...
     c(0x3C, 0x48), # <H...
     c(0x3C, 0x6D), # <m...
-    c(0x3C, 0x4D)  # <M...
+    c(0x3C, 0x4D) # <M...
   )
   for (sig in html_signatures) {
     if (length(first_bytes) >= length(sig) && all(first_bytes[seq_along(sig)] == sig)) {

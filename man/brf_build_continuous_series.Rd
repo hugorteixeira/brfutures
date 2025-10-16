@@ -90,6 +90,11 @@ The function automatically merges legacy naming conventions from the
   historical data continuous through renames without requiring manual
   preprocessing.
 
+  Internally the function dispatches to contract-family specific builders
+  (`BGI`, `CCM`, `DI`, `WDO`, `WIN`) while falling back to a generic handler
+  for other roots, allowing product tweaks without affecting unrelated
+  series.
+
   Supplying `target_days_to_maturity` via `roll_control` instructs the roll
   engine to favour contracts whose business-day tenor is closest to the
   target. This is particularly helpful for DI futures when paired with
