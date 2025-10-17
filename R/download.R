@@ -18,14 +18,14 @@ brf_bulletin_url <- function(date,
   }
   ticker_root <- ticker_vec[1L]
   if (format == "xls") {
-    base_url <- "https://www2.brf.com.br/pages/portal/brfbovespa/boletim1/SistemaPregao_excel1.asp"
+    base_url <- "https://www2.bmf.com.br/pages/portal/bmfbovespa/boletim1/SistemaPregao_excel1.asp"
     query <- paste0(
       "Data=", .brf_format_date_for_query(date),
       "&Mercadoria=", utils::URLencode(ticker_root, reserved = TRUE),
       "&XLS=true"
     )
   } else {
-    base_url <- "https://www2.brf.com.br/pages/portal/brfbovespa/boletim1/SistemaPregao1.asp"
+    base_url <- "https://www2.bmf.com.br/pages/portal/bmfbovespa/boletim1/SistemaPregao1.asp"
     encoded_caminho <- "Resumo%20Estat%EDstico%20-%20Sistema%20Preg%E3o"
     query <- paste0(
       "pagetype=pop",
@@ -1079,7 +1079,7 @@ brf_download_history <- function(ticker_root,
 #' @return A data frame with `ticker_root` and `description` columns.
 #' @export
 brf_list_ticker_roots <- function() {
-  url <- "https://www2.brf.com.br/pages/portal/brfbovespa/boletim1/SistemaPregao1.asp?pagetype=pop"
+  url <- "https://www2.bmf.com.br/pages/portal/bmfbovespa/boletim1/SistemaPregao1.asp?pagetype=pop"
   resp <- httr::RETRY(
     "GET",
     url,
@@ -1256,16 +1256,20 @@ brf_get_aggregate <- function(ticker_root,
 #'   falls back to the local cache if the API is unavailable.
 #' @param verbose If `TRUE`, emit informative messages.
 #' @param tz Time zone assigned to the returned xts index.
+#' @param is_DI If `TRUE`, treat the contract as a DI future and append `TickSize`
+#'   and `TickValue` columns derived from `calculate_futures_di_notional()`.
 #'
 #' @return An xts object containing the requested series; an empty data frame is
-#'   returned when the ticker is not found.
+#'   returned when the ticker is not found. When `is_DI` is `TRUE`, DI futures
+#'   outputs also include the `TickSize` and `TickValue` columns.
 #' @export
 brf_get_series <- function(ticker,
                            data_dir = NULL,
                            which = c("cache", "data", "config"),
                            type = c("full", "ohlcv_locf"),
                            source = c("local", "sm_api"),
-                           verbose = FALSE, tz = "America/Sao_Paulo") {
+                           verbose = FALSE, tz = "America/Sao_Paulo",
+                           is_DI = FALSE) {
   if (missing(ticker) || !nzchar(trimws(ticker[1L]))) {
     stop("ticker must be provided.", call. = FALSE)
   }
@@ -1360,14 +1364,58 @@ brf_get_series <- function(ticker,
     subset <- .brf_locf_ohlc(subset)
   }
   subset <- .brf_add_pu_columns(subset, ticker_hint = ticker)
+  if (isTRUE(is_DI)) {
+    maturity_col <- NULL
+    if ("estimated_maturity" %in% names(subset)) {
+      maturity_col <- "estimated_maturity"
+    } else if ("maturity_date" %in% names(subset)) {
+      maturity_col <- "maturity_date"
+    }
+    if (!is.null(maturity_col) && "date" %in% names(subset) && "close" %in% names(subset)) {
+      basis_dates <- suppressWarnings(as.Date(subset$date))
+      maturity_vals <- suppressWarnings(as.Date(subset[[maturity_col]]))
+      rate_vals <- suppressWarnings(as.numeric(subset$close))
+      valid_idx <- is.finite(rate_vals) & !is.na(basis_dates) & !is.na(maturity_vals)
+      tick_size <- rep(NA_real_, length(rate_vals))
+      tick_value <- rep(NA_real_, length(rate_vals))
+      if (any(valid_idx)) {
+        idx_vec <- which(valid_idx)
+        tick_list <- lapply(
+          idx_vec,
+          function(i) {
+            calculate_futures_di_notional(
+              rates = rate_vals[i],
+              maturity_date = maturity_vals[i],
+              basis_date = basis_dates[i]
+            )
+          }
+        )
+        tick_size[idx_vec] <- vapply(
+          tick_list,
+          function(x) as.numeric(x$tick_size)[1L],
+          numeric(1)
+        )
+        tick_value[idx_vec] <- vapply(
+          tick_list,
+          function(x) as.numeric(x$tick_value)[1L],
+          numeric(1)
+        )
+      }
+      subset$TickSize <- tick_size
+      subset$TickValue <- tick_value
+    } else {
+      subset$TickSize <- NA_real_
+      subset$TickValue <- NA_real_
+    }
+  }
   if (type %in% c("ohlcv_locf")) {
     cols <- intersect(
-      c("date", "ticker", "open", "high", "low", "close", "volume", "PU_o", "PU_h", "PU_l", "PU_c"),
+      c("date", "ticker", "open", "high", "low", "close", "volume", "PU_o", "PU_h", "PU_l", "PU_c", "TickSize", "TickValue"),
       names(subset)
     )
     subset <- subset[, cols, drop = FALSE]
   }
-
+  print(str(subset))
   subset$open <- as.numeric(subset$open)
   subset$high <- as.numeric(subset$high)
   subset$low <- as.numeric(subset$low)
@@ -1381,7 +1429,7 @@ brf_get_series <- function(ticker,
   }
   idx <- force_tz(as.POSIXct(subset$date), tzone = tz)
   matrix_cols <- intersect(
-    c("open", "high", "low", "close", "volume", "PU_o", "PU_h", "PU_l", "PU_c"),
+    c("open", "high", "low", "close", "volume", "PU_o", "PU_h", "PU_l", "PU_c", "TickSize", "TickValue"),
     names(subset)
   )
   subset_xts <- xts(

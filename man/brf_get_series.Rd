@@ -11,7 +11,8 @@ brf_get_series(
   type = c("full", "ohlcv_locf"),
   source = c("local", "sm_api"),
   verbose = FALSE,
-  tz = "America/Sao_Paulo"
+  tz = "America/Sao_Paulo",
+  is_DI = FALSE
 )
 }
 \arguments{
@@ -33,10 +34,14 @@ falls back to the local cache if the API is unavailable.}
 \item{verbose}{If `TRUE`, emit informative messages.}
 
 \item{tz}{Time zone assigned to the returned xts index.}
+
+\item{is_DI}{If `TRUE`, treat the contract as a DI future and append `TickSize`
+and `TickValue` columns derived from `calculate_futures_di_notional()`.}
 }
 \value{
 An xts object containing the requested series; an empty data frame is
-  returned when the ticker is not found.
+  returned when the ticker is not found. When `is_DI` is `TRUE`, DI futures
+  outputs also include the `TickSize` and `TickValue` columns.
 }
 \description{
 Retrieve a processed series for a specific contract ticker
