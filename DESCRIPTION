@@ -7,8 +7,10 @@ Authors@R: person(
     family = "Rzepian Teixeira",
     email = "hugorteixeira@senhormercado.com.br",
     role = c("aut", "cre"))
-Description: Helpers to download, parse, and organise Brazilian futures
-    bulletins from B3 (formerly BM&F) with ready-to-use xts time series.
+Description: Lightweight tools to download, parse, cache, and retrieve B3
+    (BM&F Bovespa) futures daily bulletins using only the public HTML endpoint.
+    Provides update helpers that keep a local cache in sync and fast accessors
+    for cached contract data.
 License: GPL (>= 3)
 Encoding: UTF-8
 LazyData: true
@@ -17,11 +19,7 @@ Imports:
     xml2,
     rvest,
     xts,
-    readxl,
-    bizdays,
-    lubridate,
-    zoo,
-    rSenhorMercadoAPI
+    tibble
 Suggests:
     testthat (>= 3.2.1)
 Config/testthat/edition: 3
