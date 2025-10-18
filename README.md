@@ -1,13 +1,13 @@
 # 🇧🇷 brfutures 📈
 
----
+> **Efficiently download and cache daily OHLCV futures data from Brazil's B3 exchange** 🇧🇷
 
 <p align="center">
   <a href="https://cran.r-project.org/">
     <img src="https://img.shields.io/badge/R-%3E%3D%204.1.0-276DC3?logo=r&logoColor=white" alt="R version badge" />
   </a>
   <a href="https://github.com/hugorteixeira/brfutures">
-    <img src="https://img.shields.io/badge/status-stable-green?logo=github&logoColor=white" alt="Status badge" />
+    <img src="https://img.shields.io/badge/status-experimental-yellow?logo=github&logoColor=white" alt="Status badge" />
   </a>
   <a href="https://opensource.org/licenses/GPL-3.0">
     <img src="https://img.shields.io/badge/license-GPLv3-blue.svg" alt="License badge" />
@@ -16,8 +16,6 @@
     <img src="https://img.shields.io/badge/Made%20with-R-276DC3?logo=r&logoColor=white" alt="Made with R" />
   </a>
 </p>
-
-> **Efficiently download and cache futures data from Brazil's B3 exchange** 🇧🇷
 
 ---
 
@@ -142,44 +140,40 @@ testthat::test_dir("tests/testthat")
 
 ---
 
-## ???? Contributing
+## 🤝 Contributing
 
-Bug reports, feature ideas, and pull requests are always welcome. Help us expand to new ticker roots, refine DI tooling, or improve docs.
+Contributions are welcome! Feel free to:
+- 🐛 Open issues for bugs you find
+- 💡 Suggest new features
+- 🔄 Submit pull requests
 
-### Development Setup
-```r
-# Install development dependencies
-remotes::install_dev_deps()
-
-# Build documentation
-devtools::document()
-```
+---
 
 ### Code of Conduct
 Please note that the brfutures project is released with a [Contributor Code of Conduct](https://www.contributor-covenant.org/version/2/1/code_of_conduct/). By contributing to this project, you agree to abide by its terms.
 
 ---
 
-## ???? License
+## 📄 License
 
-GPL (??? 3) ??? share, remix, and improve responsibly.
-
----
-
-## ??????????? About the Author
-
-Hi, I???m Hugo. I build tools around trading and backtesting in R to streamline workflow and help iterate on strategies faster. If you find brfutures useful (or frustrating!), feedback is welcome.
+GPL (≥ 3) – share, remix, and improve responsibly.
 
 ---
 
-## ???? Acknowledgments
+## 👨‍💻 About the Author
 
-- Data provided by B3 (Brasil, Bolsa, Balcao)
+Hi, I'm Hugo. I build tools around trading and backtesting in R to streamline workflow and help iterate on strategies faster. If you find brfutures useful (or frustrating!), feedback is welcome.
+
+---
+
+## 🙏 Acknowledgments
+
+- Data provided by B3 (Brasil, Bolsa, Balcão)
 - Built with R and the greater open-source ecosystem
 - Special thanks to the Brazilian financial market community
 
 ---
 
 <p align="center">
-  Made with ?????? for the Brazilian financial market
+  Made with ❤️ for the Brazilian financial market
 </p>
