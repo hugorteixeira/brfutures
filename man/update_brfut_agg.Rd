@@ -14,9 +14,10 @@ HTML files.}
 \item{all}{When `TRUE`, refreshes the aggregate cache after the optional root
 rebuilds. Defaults to `TRUE`.}
 
-\item{rebuild_roots}{When `TRUE`, rebuilds root caches from the raw HTML
-files for the selected roots. Defaults to `FALSE` for a fast aggregate-only
-refresh.}
+\item{rebuild_roots}{Controls whether root caches are rebuilt from the raw
+HTML files. When `NULL` (default) the caches are rebuilt only when specific
+`root` values are supplied. Set to `TRUE` or `FALSE` to override this
+behaviour.}
 
 \item{quiet}{Set to `TRUE` to silence informational messages.}
 }

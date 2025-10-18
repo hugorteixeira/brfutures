@@ -1,10 +1,23 @@
 # 🇧🇷 brfutures 📈
 
-> **Efficiently download and cache futures data from Brazil's B3 exchange** 🇧🇷
+---
 
-[![R](https://img.shields.io/badge/R-276DC3?style=for-the-badge&logo=r&logoColor=white)](https://www.r-project.org/)
-[![GitHub](https://img.shields.io/badge/GitHub-100000?style=for-the-badge&logo=github&logoColor=white)](https://github.com)
-[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
+<p align="center">
+  <a href="https://cran.r-project.org/">
+    <img src="https://img.shields.io/badge/R-%3E%3D%204.1.0-276DC3?logo=r&logoColor=white" alt="R version badge" />
+  </a>
+  <a href="https://github.com/hugorteixeira/brfutures">
+    <img src="https://img.shields.io/badge/status-stable-green?logo=github&logoColor=white" alt="Status badge" />
+  </a>
+  <a href="https://opensource.org/licenses/GPL-3.0">
+    <img src="https://img.shields.io/badge/license-GPLv3-blue.svg" alt="License badge" />
+  </a>
+  <a href="https://www.r-project.org/">
+    <img src="https://img.shields.io/badge/Made%20with-R-276DC3?logo=r&logoColor=white" alt="Made with R" />
+  </a>
+</p>
+
+> **Efficiently download and cache futures data from Brazil's B3 exchange** 🇧🇷
 
 ---
 
@@ -129,25 +142,44 @@ testthat::test_dir("tests/testthat")
 
 ---
 
-## 🤝 Contributing
+## ???? Contributing
 
-Contributions are welcome! Feel free to:
-- 🐛 Open issues for bugs you find
-- 💡 Suggest new features
-- 🔄 Submit pull requests
+Bug reports, feature ideas, and pull requests are always welcome. Help us expand to new ticker roots, refine DI tooling, or improve docs.
 
----
+### Development Setup
+```r
+# Install development dependencies
+remotes::install_dev_deps()
 
-## 📄 License
+# Build documentation
+devtools::document()
+```
 
-This package is released under the [GPL-3](https://www.gnu.org/licenses/gpl-3.0) license.
-
----
-
-## 🇧🇷 Made for Brazil's Financial Markets
-
-Built specifically for accessing Brazil's B3 exchange futures data efficiently, this package helps traders, analysts, and researchers get the financial data they need quickly and reliably. 🌟
+### Code of Conduct
+Please note that the brfutures project is released with a [Contributor Code of Conduct](https://www.contributor-covenant.org/version/2/1/code_of_conduct/). By contributing to this project, you agree to abide by its terms.
 
 ---
 
-> 💡 **Pro Tip**: For best performance with large datasets, consider running updates during off-peak hours to minimize network congestion!
+## ???? License
+
+GPL (??? 3) ??? share, remix, and improve responsibly.
+
+---
+
+## ??????????? About the Author
+
+Hi, I???m Hugo. I build tools around trading and backtesting in R to streamline workflow and help iterate on strategies faster. If you find brfutures useful (or frustrating!), feedback is welcome.
+
+---
+
+## ???? Acknowledgments
+
+- Data provided by B3 (Brasil, Bolsa, Balcao)
+- Built with R and the greater open-source ecosystem
+- Special thanks to the Brazilian financial market community
+
+---
+
+<p align="center">
+  Made with ?????? for the Brazilian financial market
+</p>

@@ -61,6 +61,8 @@ update_brfut <- function(root = NULL,
     combined$contract_code <- trimws(as.character(combined$contract_code))
     combined$contract_code <- toupper(combined$contract_code)
     combined$contract_code <- gsub("\\s+", "", combined$contract_code, perl = TRUE)
+    has_root_prefix <- startsWith(combined$contract_code, root_norm)
+    combined$contract_code[!has_root_prefix & nzchar(combined$contract_code)] <- paste0(root_norm, combined$contract_code[!has_root_prefix & nzchar(combined$contract_code)])
     if (!"ticker" %in% names(combined)) {
       combined$ticker <- NA_character_
     }
@@ -98,6 +100,23 @@ update_brfut <- function(root = NULL,
   skip_files <- unique(skip_entries$filename)
   skip_dates <- unique(skip_entries$date)
   skip_dates <- skip_dates[!is.na(skip_dates)]
+  register_no_data <- function(paths) {
+    paths <- unique(paths)
+    if (!length(paths)) {
+      return()
+    }
+    if (isTRUE(getOption("brfutures.debug_no_data", FALSE))) {
+      message("Registering no-data report(s): ", paste(basename(paths), collapse = ", "))
+    }
+    .brf_register_no_data_files(paths, quiet = quiet, root = root)
+    info <- .brf_parse_no_data_filenames(basename(paths))
+    if (!nrow(info)) {
+      return()
+    }
+    skip_files <<- unique(c(skip_files, info$filename))
+    skip_dates <<- unique(c(skip_dates, info$date[!is.na(info$date)]))
+    unlink(paths[file.exists(paths)])
+  }
   if (length(skip_files)) {
     skip_paths <- file.path(raw_dir, skip_files)
     existing_skip_paths <- skip_paths[file.exists(skip_paths)]
@@ -115,6 +134,7 @@ update_brfut <- function(root = NULL,
   if (length(skip_dates)) {
     existing_files <- setdiff(existing_files, skip_dates)
   }
+  current <- .brf_load_root_data(root)
   start_date <- start
   if (is.null(start_date)) {
     if (length(existing_files)) {
@@ -148,41 +168,71 @@ update_brfut <- function(root = NULL,
     return(invisible(NULL))
   }
   newly_downloaded <- character()
-  pending_check <- character()
-  batch_size <- 10L
-  flush_pending_no_data <- function(pending_paths) {
-    info <- .brf_handle_no_data_paths(pending_paths, root, quiet = quiet)
-    if (!nrow(info)) {
-      return(invisible(NULL))
+  parsed_files <- character()
+  new_parsed <- list()
+  preexisting_needed <- character()
+  parse_path <- function(path) {
+    if (!file.exists(path)) {
+      return()
     }
-    flagged_files <- unique(info$filename)
-    flagged_dates <- unique(info$date[!is.na(info$date)])
-    if (length(flagged_files)) {
-      skip_files <<- unique(c(skip_files, flagged_files))
-      newly_downloaded <<- newly_downloaded[!(basename(newly_downloaded) %in% flagged_files)]
+    if (isTRUE(getOption("brfutures.debug_no_data", FALSE))) {
+      message("Parsing ", basename(path))
+      if (file.exists(path)) {
+        preview <- tryCatch(readLines(path, n = 5L), error = function(e) character())
+        if (length(preview)) {
+          message("First lines: ", paste(preview, collapse = " | "))
+        }
+      }
     }
-    if (length(flagged_dates)) {
-      skip_dates <<- unique(c(skip_dates, flagged_dates))
+    if (.brf_file_has_no_data_message(path)) {
+      register_no_data(path)
+      return()
     }
-    invisible(NULL)
+    doc_check <- tryCatch(
+      xml2::read_html(path, encoding = "windows-1252"),
+      error = function(e) NULL
+    )
+    if (!is.null(doc_check) && !.brf_root_available_in_doc(doc_check, root)) {
+      register_no_data(path)
+      return()
+    }
+    result <- tryCatch(.brf_parse_html_report(path, root), error = function(e) {
+      warning("Failed to parse ", basename(path), ": ", conditionMessage(e), call. = FALSE)
+      NULL
+    })
+    if (is.null(result)) {
+      return()
+    }
+    if (isTRUE(getOption("brfutures.debug_no_data", FALSE))) {
+      message("brf_no_data attr for ", basename(path), ": ", paste0(attr(result, "brf_no_data")), "; rows=", nrow(result))
+    }
+    if (isTRUE(attr(result, "brf_no_data"))) {
+      if (isTRUE(getOption("brfutures.debug_no_data", FALSE))) {
+        message("Detected no-data via parser for ", basename(path))
+      }
+      register_no_data(path)
+      return()
+    }
+    if (!nrow(result)) {
+      return()
+    }
+    new_parsed[[length(new_parsed) + 1L]] <<- result
+    parsed_files <<- c(parsed_files, path)
   }
   for (raw_day in target_days) {
     day_date <- as.Date(raw_day, origin = "1970-01-01")
     file_name <- paste0(root, "_", format(day_date, "%Y-%m-%d"), ".html")
     dest <- file.path(raw_dir, file_name)
     if (file.exists(dest)) {
+      already_cached <- nrow(current) && day_date %in% current$date
+      already_skipped <- length(skip_dates) && day_date %in% skip_dates
+      if (!already_cached && !already_skipped) {
+        preexisting_needed <- c(preexisting_needed, dest)
+      }
       next
     }
     newly_downloaded <- c(newly_downloaded, .brf_download_html(day_date, root, quiet = quiet))
-    pending_check <- c(pending_check, dest)
-    if (length(pending_check) >= batch_size) {
-      flush_pending_no_data(pending_check)
-      pending_check <- character()
-    }
-  }
-  if (length(pending_check)) {
-    flush_pending_no_data(pending_check)
-    pending_check <- character()
+    parse_path(dest)
   }
   if (!quiet && length(newly_downloaded)) {
     message("Root ", root, ": downloaded ", length(newly_downloaded), " report(s).")
@@ -192,55 +242,22 @@ update_brfut <- function(root = NULL,
   if (!file.exists(data_path)) {
     parsed_needed <- list.files(raw_dir, pattern = "\\.html$", full.names = TRUE)
   }
-  parsed_needed <- unique(parsed_needed)
+  parsed_needed <- unique(c(parsed_needed, preexisting_needed))
+  parsed_needed <- setdiff(parsed_needed, parsed_files)
   parsed_needed <- parsed_needed[file.exists(parsed_needed)]
   if (length(skip_files)) {
     parsed_needed <- parsed_needed[!(basename(parsed_needed) %in% skip_files)]
   }
-  new_no_data_paths <- character()
-  parsed <- lapply(parsed_needed, function(path) {
-    if (.brf_file_has_no_data_message(path)) {
-      new_no_data_paths <<- c(new_no_data_paths, path)
-      return(NULL)
-    }
-    result <- tryCatch(.brf_parse_html_report(path, root), error = function(e) {
-      warning("Failed to parse ", basename(path), ": ", conditionMessage(e), call. = FALSE)
-      .brf_empty_bulletin()
-    })
-    if (isTRUE(attr(result, "brf_no_data"))) {
-      new_no_data_paths <<- c(new_no_data_paths, path)
-      return(NULL)
-    }
-    if (!nrow(result)) {
-      return(NULL)
-    }
-    result
-  })
-  if (length(new_no_data_paths)) {
-    .brf_register_no_data_files(new_no_data_paths, quiet = quiet, root = root)
-    new_no_data_info <- .brf_parse_no_data_filenames(basename(new_no_data_paths))
-    if (nrow(new_no_data_info)) {
-      skip_files <- unique(c(skip_files, new_no_data_info$filename))
-      skip_dates <- unique(c(skip_dates, new_no_data_info$date))
-    }
-    to_remove <- new_no_data_paths[file.exists(new_no_data_paths)]
-    if (length(to_remove)) {
-      unlink(to_remove)
-      if (!quiet) {
-        message(
-          "Root ", root, ": removed ", length(to_remove),
-          " downloaded no-data report(s)."
-        )
-      }
+  if (length(parsed_needed)) {
+    for (path in parsed_needed) {
+      parse_path(path)
     }
   }
-  parsed <- Filter(Negate(is.null), parsed)
-  current <- .brf_load_root_data(root)
-  if (length(parsed)) {
-    combined <- .brf_bind_rows(c(list(current), parsed))
-  } else {
-    combined <- current
+  combined_sources <- list(current)
+  if (length(new_parsed)) {
+    combined_sources[[length(combined_sources) + 1L]] <- .brf_bind_rows(new_parsed)
   }
+  combined <- .brf_bind_rows(combined_sources)
   combined <- .brf_prepare_root_data(root, combined, skip_dates = skip_dates)
   .brf_save_root_data(root, combined)
   if (!quiet) {
@@ -315,9 +332,10 @@ update_brfut <- function(root = NULL,
 #'   HTML files.
 #' @param all When `TRUE`, refreshes the aggregate cache after the optional root
 #'   rebuilds. Defaults to `TRUE`.
-#' @param rebuild_roots When `TRUE`, rebuilds root caches from the raw HTML
-#'   files for the selected roots. Defaults to `FALSE` for a fast aggregate-only
-#'   refresh.
+#' @param rebuild_roots Controls whether root caches are rebuilt from the raw
+#'   HTML files. When `NULL` (default) the caches are rebuilt only when specific
+#'   `root` values are supplied. Set to `TRUE` or `FALSE` to override this
+#'   behaviour.
 #' @param quiet Set to `TRUE` to silence informational messages.
 #'
 #' @return Invisibly returns a list with rebuilt root data frames (if any) and
