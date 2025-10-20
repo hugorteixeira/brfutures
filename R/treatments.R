@@ -525,13 +525,13 @@
 
   attr_slippage <- attr(data, "fut_slippage")
   attr_fees <- attr(data, "fut_fees")
-  # print(str(data))
-  # FinancialInstrument::currency("USD")
-  # FinancialInstrument::future(ticker,
-  #   currency = "USD",
-  #   multiplier = 450, tick_size = 0.01,
-  #   identifiers = list(slippage = attr_slippage, fees = attr_fees),
-  #   overwrite = TRUE
-  # )
+  print(str(data))
+  FinancialInstrument::currency("USD")
+  FinancialInstrument::future(ticker,
+    currency = "USD",
+    multiplier = 450, tick_size = 0.01,
+    identifiers = list(slippage = attr_slippage, fees = attr_fees),
+    overwrite = TRUE
+  )
   return(data)
 }

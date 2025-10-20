@@ -78,6 +78,35 @@ get_brfut_agg(start = "2024-03-01", end = "2024-04-01")
 get_brfut_agg(treatment = "clean_data_drop0")
 ```
 
+### 4. Build continuous futures series 📈
+```r
+# Get the aggregate data for a specific period
+data <- get_brfut_agg(start = "2024-01-01", end = "2024-06-01")
+
+# Build backward-adjusted continuous series (preserves current price levels)
+# This scales past history whenever a roll occurs (Panama method)
+backward_series <- build_backward_adjusted(
+  data = data,
+  root = "WIN",
+  days_before_roll = 5
+)
+
+# Build forward-adjusted continuous series (preserves early history)
+# This scales forward contracts to avoid price gaps
+forward_series <- build_forward_adjusted(
+  data = data,
+  root = "WIN", 
+  days_before_roll = 5
+)
+```
+
+The continuous futures functions support:
+- **Backward adjustment**: Maintains current price levels by scaling historical data
+- **Forward adjustment**: Preserves early history by scaling future contracts  
+- **Custom roll schedules**: Adjust how many days before maturity to roll
+- **Maturity filtering**: Select specific months (e.g., "F", "G", "H") or use all
+- **Multi-root support**: Include additional roots for historical continuity
+
 ---
 
 ## 🏗️ Package Architecture
