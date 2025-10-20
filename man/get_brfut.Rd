@@ -8,7 +8,8 @@ get_brfut(
   ticker,
   start = NULL,
   end = NULL,
-  treatment = "ohlcv_xts",
+  treatment = "ohlcv_drop0_xts",
+  add_attrs = TRUE,
   rebuild_agg = FALSE,
   ...
 )

@@ -4,10 +4,27 @@
 \alias{get_brfut_agg}
 \title{Load all cached bulletins within a date range}
 \usage{
-get_brfut_agg(start = NULL, end = NULL, rebuild_agg = FALSE)
+get_brfut_agg(
+  start = NULL,
+  end = NULL,
+  root = NULL,
+  treatment = "clean_data",
+  rebuild_agg = FALSE
+)
 }
 \arguments{
 \item{start, end}{Date bounds. When omitted all cached rows are returned.}
+
+\item{root}{Optional character vector restricting the returned roots. When
+`NULL`, rows from every cached root are included.}
+
+\item{treatment}{Either the name of a built-in treatment (e.g. `"standard"`,
+`"regular"`, `"raw"`) or a function receiving the assembled aggregate data
+frame and returning the desired shape. Defaults to `"clean_data"`, which removes
+redundant bulletin columns, converts localized numeric strings, and renames
+selected columns to clearer aliases (e.g. `"preco_abert"` becomes `"open"`). Use
+`"clean_data_drop0"` to additionally discard rows whose key OHLC/V columns are
+zero or `NA`.}
 
 \item{rebuild_agg}{When `TRUE`, rebuilds the cached aggregates from the
 latest root files before loading. Defaults to `FALSE`.}

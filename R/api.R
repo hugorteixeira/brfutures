@@ -414,7 +414,8 @@ update_brfut_agg <- function(root = NULL,
 get_brfut <- function(ticker,
                       start = NULL,
                       end = NULL,
-                      treatment = "ohlcv_xts",
+                      treatment = "ohlcv_drop0_xts",
+                      add_attrs = TRUE,
                       rebuild_agg = FALSE,
                       ...) {
   if (missing(ticker)) {
@@ -435,34 +436,62 @@ get_brfut <- function(ticker,
   bounds <- .brf_normalize_date_bounds(start, end)
   data$date <- as.Date(data$date)
   data <- data[data$date >= (bounds$start %||% min(data$date)) &
-                 data$date <= bounds$end, , drop = FALSE]
+    data$date <= bounds$end, , drop = FALSE]
   data <- data[order(data$date, data$ticker), , drop = FALSE]
   treatment_fn <- .brf_resolve_treatment(treatment)
-  treatment_fn(data, ...)
+  finish <- treatment_fn(data, ...)
+  if (add_attrs) finish <- .brf_add_futures_attrs(finish, ticker)
+  return(finish)
 }
 
 #' Load all cached bulletins within a date range
 #'
 #' @param start,end Date bounds. When omitted all cached rows are returned.
+#' @param root Optional character vector restricting the returned roots. When
+#'   `NULL`, rows from every cached root are included.
+#' @param treatment Either the name of a built-in treatment (e.g. `"standard"`,
+#'   `"regular"`, `"raw"`) or a function receiving the assembled aggregate data
+#'   frame and returning the desired shape. Defaults to `"clean_data"`, which
+#'   removes redundant bulletin columns, converts localized numeric strings to
+#'   numbers, and renames selected columns to clearer aliases (e.g.
+#'   `"preco_abert"` -> `"open"`). Use `"clean_data_drop0"` to additionally drop
+#'   rows where any key OHLC/V fields are zero or `NA`.
 #' @param rebuild_agg When `TRUE`, rebuilds the cached aggregates from the
 #'   latest root files before loading. Defaults to `FALSE`.
 #'
 #' @return A data frame with every cached contract observation within the range.
 #' @export
-get_brfut_agg <- function(start = NULL, end = NULL, rebuild_agg = FALSE) {
+get_brfut_agg <- function(start = NULL,
+                          end = NULL,
+                          root = NULL,
+                          treatment = "clean_data",
+                          rebuild_agg = FALSE) {
+  filter_roots <- .brf_normalize_root_vector(root)
   if (isTRUE(rebuild_agg) || !file.exists(.brf_aggregate_path(create = FALSE))) {
-    update_brfut_agg(all = TRUE, rebuild_roots = FALSE, quiet = TRUE)
+    update_brfut_agg(
+      root = if (length(filter_roots)) filter_roots else NULL,
+      all = TRUE,
+      rebuild_roots = FALSE,
+      quiet = TRUE
+    )
   }
   data <- .brf_load_aggregate()
   if (!nrow(data)) {
     stop("Aggregate cache is empty. Run update_brfut() first.", call. = FALSE)
   }
+  if (length(filter_roots)) {
+    data <- data[data$root %in% filter_roots, , drop = FALSE]
+  }
   bounds <- .brf_normalize_date_bounds(start, end)
   data$date <- as.Date(data$date)
-  from <- if (is.null(bounds$start)) min(data$date) else bounds$start
-  to <- bounds$end
-  data <- data[data$date >= from & data$date <= to, , drop = FALSE]
-  data[order(data$date, data$root, data$ticker), , drop = FALSE]
+  if (nrow(data)) {
+    from <- if (is.null(bounds$start)) min(data$date) else bounds$start
+    to <- bounds$end
+    data <- data[data$date >= from & data$date <= to, , drop = FALSE]
+  }
+  data <- data[order(data$date, data$root, data$ticker), , drop = FALSE]
+  treatment_fn <- .brf_resolve_agg_treatment(treatment)
+  treatment_fn(data)
 }
 
 `%||%` <- function(lhs, rhs) {
