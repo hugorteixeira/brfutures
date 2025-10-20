@@ -489,9 +489,13 @@ get_brfut_agg <- function(start = NULL,
     to <- bounds$end
     data <- data[data$date >= from & data$date <= to, , drop = FALSE]
   }
-  data <- data[order(data$date, data$root, data$ticker), , drop = FALSE]
+  data <- .brf_normalize_old_tickers(data)
+  if (nrow(data)) {
+    data <- data[order(data$date, data$root, data$ticker), , drop = FALSE]
+  }
   treatment_fn <- .brf_resolve_agg_treatment(treatment)
-  treatment_fn(data)
+  result <- treatment_fn(data)
+  .brf_estimate_maturity(result)
 }
 
 `%||%` <- function(lhs, rhs) {

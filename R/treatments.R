@@ -125,40 +125,10 @@
   tibble::as_tibble(.brf_standard_treatment(df, ...))
 }
 
-.brf_treatment_standard_xts <- function(df, ...) {
-  std <- .brf_standard_treatment(df, ...)
-  if (!nrow(std) || !"date" %in% names(std)) {
-    return(xts::xts())
-  }
-  order_dates <- as.Date(std$date)
-  keep_cols <- intersect(c("open", "high", "low", "close", "volume", "contracts_traded"), names(std))
-  if (!length(keep_cols)) {
-    return(xts::xts(order.by = order_dates[integer(0)]))
-  }
-  numeric_data <- std[keep_cols]
-  numeric_data[] <- lapply(numeric_data, function(col) {
-    if (is.numeric(col)) col else suppressWarnings(as.numeric(col))
-  })
-  matrix_data <- as.matrix(numeric_data)
-  col_map <- c(
-    open = "Open",
-    high = "High",
-    low = "Low",
-    close = "Close",
-    volume = "Volume",
-    contracts_traded = "Volume_Qty"
-  )
-  colnames(matrix_data) <- col_map[keep_cols]
-  valid <- !is.na(order_dates)
-  matrix_data <- matrix_data[valid, , drop = FALSE]
-  order_dates <- order_dates[valid]
-  xts::xts(matrix_data, order.by = order_dates)
-}
-
 .brf_treatment_ohlcv_xts <- function(df, ...) {
   .brf_treatment_standard_xts(df, ...)
 }
-# Core builder (unchanged): returns raw OHLCV xts
+
 .brf_treatment_standard_xts <- function(df, ...) {
   std <- .brf_standard_treatment(df, ...)
   if (!nrow(std) || !"date" %in% names(std)) {
@@ -303,6 +273,131 @@
   stop("Treatment must be a function or the name of a built-in treatment.", call. = FALSE)
 }
 
+.brf_month_from_name <- function(name) {
+  map <- c(
+    JAN = "F", FEB = "G", FEV = "G",
+    MAR = "H",
+    APR = "J", ABR = "J",
+    MAY = "K", MAI = "K",
+    JUN = "M",
+    JUL = "N",
+    AUG = "Q", AGO = "Q",
+    SEP = "U", SET = "U",
+    OCT = "V", OUT = "V",
+    NOV = "X",
+    DEC = "Z", DEZ = "Z"
+  )
+  map[toupper(name)]
+}
+
+.brf_normalize_old_tickers <- function(df) {
+  if (!is.data.frame(df) || !nrow(df)) {
+    return(df)
+  }
+  if (!("ticker" %in% names(df))) {
+    return(df)
+  }
+  tickers <- as.character(df$ticker)
+  pattern <- "^([A-Z]{3})([A-Z]{3})(\\d)$"
+  matches <- regmatches(tickers, regexec(pattern, tickers, perl = TRUE))
+  root_map <- c(BOI = "BGI")
+  for (i in seq_along(matches)) {
+    m <- matches[[i]]
+    if (length(m) != 4) {
+      next
+    }
+    orig_root <- toupper(m[2])
+    month_name <- toupper(m[3])
+    month_letter <- .brf_month_from_name(month_name)
+    if (length(month_letter) == 0 || is.na(month_letter)) {
+      next
+    }
+    year_part <- m[4]
+    year_suffix <- if (nchar(year_part) == 1) paste0("9", year_part) else year_part
+    new_root <- if (orig_root %in% names(root_map)) root_map[[orig_root]] else orig_root
+    new_ticker <- paste0(new_root, month_letter, year_suffix)
+    tickers[i] <- new_ticker
+    if ("contract_code" %in% names(df)) {
+      df$contract_code[i] <- new_ticker
+    }
+    if ("VENCTO" %in% names(df)) {
+      df$VENCTO[i] <- new_ticker
+    }
+    if ("root" %in% names(df)) {
+      root_val <- toupper(as.character(df$root[i]))
+      if (!is.na(root_val) && nzchar(root_val) && root_val == orig_root) {
+        df$root[i] <- new_root
+      }
+    }
+  }
+  df$ticker <- tickers
+  if ("root" %in% names(df)) {
+    roots <- toupper(as.character(df$root))
+    idx <- roots %in% names(root_map)
+    if (any(idx)) {
+      df$root[idx] <- root_map[roots[idx]]
+    }
+  }
+  df
+}
+
+.brf_maturity_calculators <- function() {
+  list(
+    DOL = function(year, month) .brf_last_business_day(year, month),
+    WIN = function(year, month) .brf_nearest_weekday(year, month, 15, 3),
+    CCM = function(year, month) .brf_business_day_before(year, month, 15, offset = 1),
+    BGI = function(year, month) .brf_last_business_day(year, month),
+    ICF = function(year, month) .brf_business_day_before(year, month, 15, offset = 1),
+    DI1 = function(year, month) .brf_first_business_day(year, month)
+  )
+}
+
+.brf_estimate_maturity <- function(df) {
+  if (!is.data.frame(df) || !nrow(df) || !"ticker" %in% names(df)) {
+    return(df)
+  }
+  tickers <- as.character(df$ticker)
+  pattern <- "^([A-Z0-9]{3,4})([FGHJKMNQUVXZ])([0-9]{2})$"
+  matches <- regmatches(tickers, regexec(pattern, tickers, perl = TRUE))
+  month_map <- c(F = 1L, G = 2L, H = 3L, J = 4L, K = 5L, M = 6L, N = 7L, Q = 8L, U = 9L, V = 10L, X = 11L, Z = 12L)
+  roots <- if ("root" %in% names(df)) toupper(as.character(df$root)) else rep(NA_character_, length(tickers))
+  obs_dates <- if ("date" %in% names(df)) as.Date(df$date) else rep(as.Date(NA), length(tickers))
+  calculators <- .brf_maturity_calculators()
+  maturity <- rep(as.Date(NA), length(tickers))
+  for (i in seq_along(matches)) {
+    m <- matches[[i]]
+    if (length(m) != 4) {
+      next
+    }
+    root_guess <- toupper(m[2])
+    month_letter <- toupper(m[3])
+    if (is.na(month_letter) || !nzchar(month_letter)) {
+      next
+    }
+    month <- month_map[month_letter]
+    if (is.na(month)) {
+      next
+    }
+    month <- as.integer(month)
+    year_part <- m[4]
+    if (is.na(year_part) || !nzchar(year_part)) {
+      next
+    }
+    maturity_year <- .brf_infer_contract_year(year_part, obs_dates[i])
+    if (is.na(maturity_year)) {
+      next
+    }
+    root_key <- if (!is.na(roots[i]) && nzchar(roots[i])) toupper(roots[i]) else root_guess
+    calc <- calculators[[root_key]]
+    if (is.null(calc)) {
+      next
+    }
+    maturity[i] <- calc(maturity_year, month)
+  }
+  df$maturity <- maturity
+  df
+}
+
 .brf_agg_standard_treatment <- function(df, ...) {
   if (!is.data.frame(df) || !nrow(df)) {
     return(df)
@@ -419,15 +514,10 @@
   if (startsWith(ticker, "CCM")) {
     data <- .brf_add_futures_ccm(data, ticker)
   }
-  if (startsWith(ticker, "WDO")) print("dol")
-  if (startsWith(ticker, "WIN")) print("win")
-  if (startsWith(ticker, "BGI")) print("boizin")
   return(data)
 }
 
 .brf_add_futures_ccm <- function(data, ticker) {
-  print("milho")
-
   attr(data, "fut_slippage") <- 0.07
   attr(data, "fut_fees") <- 10
   attr(data, "fut_tick_size") <- 0.01

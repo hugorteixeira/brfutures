@@ -78,16 +78,23 @@ test_that("get_brfut applies treatments", {
   )
   saveRDS(data, file.path(root_dir, "WIN.rds"))
   data_di <- data
-  data_di$root <- "DI"
-  data_di$contract_code <- "DIM24"
-  data_di$ticker <- "DIM24"
-  data_di$VENCTO <- "DIM24"
+  data_di$root <- "DI1"
+  data_di$contract_code <- "DI1M24"
+  data_di$ticker <- "DI1M24"
+  data_di$VENCTO <- "DI1M24"
   data_di[["VOL."]] <- "0"
   data_di[["PRECO.ABERT."]] <- "0"
   data_di[["PRECO.MIN."]] <- "0"
   data_di[["PRECO.MAX."]] <- "0"
   data_di[["ULT..PRECO"]] <- "0"
-  agg_data <- rbind(data, data_di)
+  data_boi <- data
+  data_boi$date <- as.Date("1998-12-30")
+  data_boi$root <- "BOI"
+  data_boi$contract_code <- "BOIJAN9"
+  data_boi$ticker <- "BOIJAN9"
+  data_boi$VENCTO <- "BOIJAN9"
+  data_boi[["VOL."]] <- "1.500"
+  agg_data <- rbind(data, data_di, data_boi)
   saveRDS(agg_data, file.path(cache, "aggregate.rds"))
   xts_result <- get_brfut("WINM24")
   expect_true(xts::is.xts(xts_result))
@@ -103,26 +110,40 @@ test_that("get_brfut applies treatments", {
   expect_s3_class(standard_tbl, "tbl_df")
   custom <- get_brfut("WINM24", treatment = function(df) nrow(df))
   expect_equal(custom, 1L)
-  agg_all <- get_brfut_agg(start = "2024-04-01", end = "2024-04-05")
-  expect_equal(nrow(agg_all), 2)
-  expect_equal(sort(unique(agg_all$root)), c("DI", "WIN"))
+  agg_all <- get_brfut_agg()
+  expect_equal(nrow(agg_all), 3)
+  expect_equal(sort(unique(agg_all$root)), c("BGI", "DI1", "WIN"))
   removed_cols <- c("contract_code", "vencto", "contr_abert_1", "contr_fech_2", "num_negoc")
   expect_false(any(removed_cols %in% names(agg_all)))
   key_cols <- c("volume_qty", "volume", "open", "low", "high", "close")
   expect_true(all(key_cols %in% names(agg_all)))
   expect_true(all(vapply(agg_all[key_cols], is.numeric, logical(1))))
+  expect_true("maturity" %in% names(agg_all))
+  expect_equal(
+    agg_all$maturity[agg_all$ticker == "WINM24"],
+    as.Date("2024-06-12")
+  )
+  expect_equal(
+    agg_all$maturity[agg_all$ticker == "DI1M24"],
+    as.Date("2024-06-03")
+  )
+  expect_equal(
+    agg_all$maturity[agg_all$ticker == "BGIF99"],
+    as.Date("1999-01-29")
+  )
+  expect_true("BGIF99" %in% agg_all$ticker)
   agg_win <- get_brfut_agg(start = "2024-04-01", end = "2024-04-05", root = "WIN")
   expect_equal(nrow(agg_win), 1)
   expect_equal(agg_win$root, "WIN")
   expect_false("contr_abert_1" %in% names(agg_win))
   expect_equal(agg_win$open, 120000)
-  agg_di <- get_brfut_agg(root = "DI")
-  expect_equal(unique(agg_di$root), "DI")
+  agg_di <- get_brfut_agg(root = "DI1")
+  expect_equal(unique(agg_di$root), "DI1")
   expect_true(all(c("volume_qty", "volume") %in% names(agg_di)))
   expect_equal(agg_di$volume, 0)
   agg_drop0 <- get_brfut_agg(treatment = "clean_data_drop0")
-  expect_equal(nrow(agg_drop0), 1)
-  expect_equal(unique(agg_drop0$root), "WIN")
+  expect_equal(nrow(agg_drop0), 2)
+  expect_equal(sort(unique(agg_drop0$root)), c("BGI", "WIN"))
   agg_regular <- get_brfut_agg(root = "WIN", treatment = "regular")
   target_cols <- intersect(c("contr_abert_1", "CONTR. ABERT.(1)", "CONTR..ABERT..1."), names(agg_regular))
   expect_true(length(target_cols) > 0)

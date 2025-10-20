@@ -71,7 +71,11 @@ update_brfut(
 get_brfut("WINM24")
 
 # Get aggregate data for all cached roots between dates
+# (defaults to the `clean_data` treatment, which normalizes columns)
 get_brfut_agg(start = "2024-03-01", end = "2024-04-01")
+
+# Drop rows where OHLC/volume fields are zero or missing
+get_brfut_agg(treatment = "clean_data_drop0")
 ```
 
 ---
