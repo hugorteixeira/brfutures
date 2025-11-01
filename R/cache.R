@@ -32,6 +32,28 @@
   dir
 }
 
+.brf_parsed_dir <- function(root, create = TRUE) {
+  dir <- file.path(.brf_root_dir(root, create = create), "parsed")
+  if (create && !dir.exists(dir)) {
+    dir.create(dir, recursive = TRUE, showWarnings = FALSE)
+  }
+  dir
+}
+
+.brf_parsed_path <- function(root, identifier, create = TRUE) {
+  root_norm <- .brf_normalize_root(root)
+  if (inherits(identifier, "Date")) {
+    file_name <- paste0(root_norm, "_", format(identifier, "%Y-%m-%d"), ".rds")
+  } else {
+    file_name <- basename(identifier)
+    file_name <- sub("\\.html$", ".rds", file_name, ignore.case = TRUE)
+    if (!grepl("\\.rds$", file_name, ignore.case = TRUE)) {
+      file_name <- paste0(file_name, ".rds")
+    }
+  }
+  file.path(.brf_parsed_dir(root_norm, create = create), file_name)
+}
+
 .brf_root_data_path <- function(root, create = TRUE) {
   root_norm <- .brf_normalize_root(root)
   dir <- .brf_root_dir(root_norm, create = create)
@@ -43,6 +65,64 @@
   file.path(base, "aggregate.rds")
 }
 
+.brf_cache_mark_corrupt <- function(data, path, label) {
+  if (!inherits(data, "data.frame")) {
+    data <- .brf_empty_bulletin()
+  }
+  attr(data, "brf_cache_corrupt") <- TRUE
+  attr(data, "brf_cache_path") <- path
+  attr(data, "brf_cache_label") <- label
+  data
+}
+
+.brf_cache_is_corrupt <- function(data) {
+  isTRUE(attr(data, "brf_cache_corrupt", exact = TRUE))
+}
+
+.brf_cache_strip_attrs <- function(data) {
+  if (!inherits(data, "data.frame")) {
+    return(data)
+  }
+  attr(data, "brf_cache_corrupt") <- NULL
+  attr(data, "brf_cache_path") <- NULL
+  attr(data, "brf_cache_label") <- NULL
+  data
+}
+
+.brf_read_cache_rds <- function(path, label) {
+  if (!file.exists(path)) {
+    return(.brf_empty_bulletin())
+  }
+  obj <- tryCatch(
+    readRDS(path),
+    error = function(e) {
+      warning(
+        "Failed to read ", label, " at ", path, ": ", conditionMessage(e),
+        ". The cache will be rebuilt.",
+        call. = FALSE
+      )
+      if (file.exists(path)) {
+        unlink(path)
+      }
+      .brf_cache_mark_corrupt(.brf_empty_bulletin(), path, label)
+    }
+  )
+  if (.brf_cache_is_corrupt(obj)) {
+    return(obj)
+  }
+  if (!inherits(obj, "data.frame")) {
+    warning(
+      "Unexpected object stored in ", label, " at ", path, ". The cache will be rebuilt.",
+      call. = FALSE
+    )
+    if (file.exists(path)) {
+      unlink(path)
+    }
+    return(.brf_cache_mark_corrupt(.brf_empty_bulletin(), path, label))
+  }
+  .brf_cache_strip_attrs(obj)
+}
+
 .brf_list_cached_roots <- function() {
   base <- tryCatch(.brf_cache_dir(create = FALSE), error = function(e) NULL)
   if (is.null(base) || !dir.exists(base)) {
@@ -50,6 +130,123 @@
   }
   entries <- list.dirs(base, recursive = FALSE, full.names = FALSE)
   entries[nzchar(entries)]
+}
+
+.brf_extract_report_date_from_name <- function(name) {
+  if (inherits(name, "Date")) {
+    return(as.Date(name))
+  }
+  base <- basename(name)
+  match <- regexpr("(\\d{4}-\\d{2}-\\d{2})", base, perl = TRUE)
+  if (match[1L] == -1L) {
+    return(as.Date(NA))
+  }
+  found <- regmatches(base, match)
+  suppressWarnings(as.Date(found))
+}
+
+.brf_list_parsed_files <- function(root) {
+  dir <- .brf_parsed_dir(root, create = FALSE)
+  if (!dir.exists(dir)) {
+    return(character())
+  }
+  files <- list.files(dir, pattern = "\\.rds$", full.names = TRUE)
+  files[file.exists(files)]
+}
+
+.brf_read_parsed_rds <- function(path) {
+  if (!file.exists(path)) {
+    return(NULL)
+  }
+  obj <- tryCatch(
+    readRDS(path),
+    error = function(e) {
+      warning(
+        "Failed to read parsed cache at ", path, ": ", conditionMessage(e),
+        ". The file will be discarded.",
+        call. = FALSE
+      )
+      unlink(path)
+      NULL
+    }
+  )
+  if (!inherits(obj, "data.frame")) {
+    warning(
+      "Unexpected object stored at ", path, ". Removing parsed cache entry.",
+      call. = FALSE
+    )
+    unlink(path)
+    return(NULL)
+  }
+  obj
+}
+
+.brf_collect_parsed_data <- function(root, skip_dates = as.Date(character())) {
+  files <- .brf_list_parsed_files(root)
+  if (!length(files)) {
+    return(list())
+  }
+  frames <- lapply(files, .brf_read_parsed_rds)
+  frames <- Filter(function(x) inherits(x, "data.frame"), frames)
+  if (!length(frames)) {
+    return(list())
+  }
+  if (length(skip_dates)) {
+    frames <- lapply(frames, function(df) {
+      if (!"date" %in% names(df)) {
+        return(df)
+      }
+      keep <- !(as.Date(df$date) %in% skip_dates)
+      df[keep, , drop = FALSE]
+    })
+  }
+  frames <- Filter(function(df) inherits(df, "data.frame") && nrow(df) > 0 && !isTRUE(attr(df, "brf_no_data")), frames)
+  if (!length(frames)) {
+    return(list())
+  }
+  lapply(frames, .brf_parsed_strip_attrs)
+}
+
+.brf_parsed_strip_attrs <- function(df) {
+  if (!inherits(df, "data.frame")) {
+    return(df)
+  }
+  attrs_to_drop <- c(
+    "brf_parser_version",
+    "brf_source_html",
+    "brf_root",
+    "brf_report_date",
+    "brf_parsed_at",
+    "brf_raw_header_map",
+    "brf_raw_headers",
+    "brf_no_data"
+  )
+  for (name in attrs_to_drop) {
+    attr(df, name) <- NULL
+  }
+  df
+}
+
+.brf_parsed_is_current <- function(df) {
+  version <- attr(df, "brf_parser_version", exact = TRUE)
+  !is.null(version) && identical(version, .brf_parser_version())
+}
+
+.brf_save_parsed_day <- function(root, date, data) {
+  if (!inherits(data, "data.frame")) {
+    stop("Parsed data must be a data frame.", call. = FALSE)
+  }
+  path <- .brf_parsed_path(root, date, create = TRUE)
+  saveRDS(data, path, compress = "xz")
+  invisible(path)
+}
+
+.brf_remove_parsed_day <- function(root, date) {
+  path <- .brf_parsed_path(root, date, create = FALSE)
+  if (file.exists(path)) {
+    unlink(path)
+  }
+  invisible(path)
 }
 
 .brf_existing_dates <- function(root) {
@@ -73,15 +270,16 @@
   if (!file.exists(path) && file.exists(legacy_path)) {
     dir.create(dirname(path), recursive = TRUE, showWarnings = FALSE)
     if (!file.rename(legacy_path, path)) {
-      legacy_data <- readRDS(legacy_path)
-      .brf_save_root_data(root_norm, legacy_data)
+      legacy_data <- .brf_read_cache_rds(legacy_path, sprintf("legacy root cache for '%s'", root_norm))
+      .brf_save_root_data(root_norm, .brf_cache_strip_attrs(legacy_data))
     }
   }
-  if (!file.exists(path)) {
-    return(.brf_empty_bulletin())
-  }
-  data <- readRDS(path)
-  if (!is.data.frame(data)) {
+  data <- .brf_read_cache_rds(path, sprintf("root cache for '%s'", root_norm))
+  if (.brf_cache_is_corrupt(data)) {
+    rebuilt <- .brf_rebuild_root_cache(root_norm, quiet = TRUE)
+    if (inherits(rebuilt, "data.frame")) {
+      return(.brf_cache_strip_attrs(rebuilt))
+    }
     return(.brf_empty_bulletin())
   }
   data
@@ -100,11 +298,12 @@
 
 .brf_load_aggregate <- function() {
   path <- .brf_aggregate_path(create = FALSE)
-  if (!file.exists(path)) {
-    return(.brf_empty_bulletin())
-  }
-  data <- readRDS(path)
-  if (!is.data.frame(data)) {
+  data <- .brf_read_cache_rds(path, "aggregate cache")
+  if (.brf_cache_is_corrupt(data)) {
+    rebuilt <- .brf_update_aggregate_from_roots()
+    if (inherits(rebuilt, "data.frame")) {
+      return(.brf_cache_strip_attrs(rebuilt))
+    }
     return(.brf_empty_bulletin())
   }
   data

@@ -50,6 +50,78 @@ update_brfut <- function(root = NULL,
   invisible(NULL)
 }
 
+.brf_sync_parsed_report <- function(path,
+                                    root,
+                                    register_no_data,
+                                    force = FALSE,
+                                    quiet = FALSE) {
+  if (missing(register_no_data) || !is.function(register_no_data)) {
+    stop("A register_no_data handler is required.", call. = FALSE)
+  }
+  if (!file.exists(path)) {
+    return(NULL)
+  }
+  report_date <- .brf_extract_report_date_from_name(path)
+  parsed_path <- .brf_parsed_path(root, report_date, create = FALSE)
+  if (file.exists(parsed_path)) {
+    existing <- .brf_read_parsed_rds(parsed_path)
+    if (!is.null(existing) && .brf_parsed_is_current(existing)) {
+      no_data <- isTRUE(attr(existing, "brf_no_data"))
+      if (force && !no_data) {
+        return(list(
+          date = report_date,
+          data = existing,
+          updated = FALSE,
+          no_data = FALSE
+        ))
+      }
+      if (no_data) {
+        return(list(
+          date = report_date,
+          data = NULL,
+          updated = FALSE,
+          no_data = TRUE
+        ))
+      }
+      return(NULL)
+    }
+  }
+  parsed <- tryCatch(
+    .brf_parse_html_report_clean(path, root),
+    error = function(e) {
+      warning("Failed to parse ", basename(path), ": ", conditionMessage(e), call. = FALSE)
+      NULL
+    }
+  )
+  if (is.null(parsed)) {
+    return(NULL)
+  }
+  if (isTRUE(attr(parsed, "brf_no_data"))) {
+    register_no_data(path)
+    .brf_remove_parsed_day(root, report_date)
+    return(list(
+      date = report_date,
+      data = NULL,
+      updated = TRUE,
+      no_data = TRUE
+    ))
+  }
+  if (is.null(attr(parsed, "brf_parser_version", exact = TRUE))) {
+    attr(parsed, "brf_parser_version") <- .brf_parser_version()
+  }
+  if (is.null(attr(parsed, "brf_parsed_at", exact = TRUE))) {
+    attr(parsed, "brf_parsed_at") <- Sys.time()
+  }
+  attr(parsed, "brf_report_date") <- attr(parsed, "brf_report_date", exact = TRUE) %||% report_date
+  .brf_save_parsed_day(root, report_date, parsed)
+  list(
+    date = report_date,
+    data = parsed,
+    updated = TRUE,
+    no_data = FALSE
+  )
+}
+
 .brf_prepare_root_data <- function(root, combined, skip_dates = as.Date(character())) {
   root_norm <- .brf_normalize_root(root)
   if (!nrow(combined)) {
@@ -96,6 +168,7 @@ update_brfut <- function(root = NULL,
 .brf_update_root <- function(root, start, end, quiet = FALSE) {
   root <- .brf_normalize_root(root)
   raw_dir <- .brf_raw_dir(root)
+  .brf_parsed_dir(root)
   skip_entries <- .brf_no_data_entries(root)
   skip_files <- unique(skip_entries$filename)
   skip_dates <- unique(skip_entries$date)
@@ -114,7 +187,11 @@ update_brfut <- function(root = NULL,
       return()
     }
     skip_files <<- unique(c(skip_files, info$filename))
-    skip_dates <<- unique(c(skip_dates, info$date[!is.na(info$date)]))
+    new_skip_dates <- info$date[!is.na(info$date)]
+    if (length(new_skip_dates)) {
+      skip_dates <<- unique(c(skip_dates, new_skip_dates))
+      lapply(new_skip_dates, function(date) .brf_remove_parsed_day(root, date))
+    }
     unlink(paths[file.exists(paths)])
   }
   if (length(skip_files)) {
@@ -128,6 +205,10 @@ update_brfut <- function(root = NULL,
           " cached no-data report(s)."
         )
       }
+    }
+    skip_dates_to_drop <- skip_dates[!is.na(skip_dates)]
+    if (length(skip_dates_to_drop)) {
+      lapply(skip_dates_to_drop, function(date) .brf_remove_parsed_day(root, date))
     }
   }
   existing_files <- .brf_existing_dates(root)
@@ -168,21 +249,15 @@ update_brfut <- function(root = NULL,
     return(invisible(NULL))
   }
   newly_downloaded <- character()
-  parsed_files <- character()
-  new_parsed <- list()
   preexisting_needed <- character()
-  parse_path <- function(path) {
+  parsed_updates <- list()
+  refresh_dates <- as.Date(character())
+  ensure_path <- function(path, force = FALSE) {
     if (!file.exists(path)) {
       return()
     }
     if (isTRUE(getOption("brfutures.debug_no_data", FALSE))) {
       message("Parsing ", basename(path))
-      if (file.exists(path)) {
-        preview <- tryCatch(readLines(path, n = 5L), error = function(e) character())
-        if (length(preview)) {
-          message("First lines: ", paste(preview, collapse = " | "))
-        }
-      }
     }
     if (.brf_file_has_no_data_message(path)) {
       register_no_data(path)
@@ -196,35 +271,25 @@ update_brfut <- function(root = NULL,
       register_no_data(path)
       return()
     }
-    result <- tryCatch(.brf_parse_html_report(path, root), error = function(e) {
-      warning("Failed to parse ", basename(path), ": ", conditionMessage(e), call. = FALSE)
-      NULL
-    })
+    result <- .brf_sync_parsed_report(path, root, register_no_data, force = force, quiet = quiet)
     if (is.null(result)) {
       return()
     }
-    if (isTRUE(getOption("brfutures.debug_no_data", FALSE))) {
-      message("brf_no_data attr for ", basename(path), ": ", paste0(attr(result, "brf_no_data")), "; rows=", nrow(result))
-    }
-    if (isTRUE(attr(result, "brf_no_data"))) {
-      if (isTRUE(getOption("brfutures.debug_no_data", FALSE))) {
-        message("Detected no-data via parser for ", basename(path))
-      }
-      register_no_data(path)
+    if (isTRUE(result$no_data)) {
+      refresh_dates <<- unique(c(refresh_dates, result$date))
       return()
     }
-    if (!nrow(result)) {
-      return()
+    if (!is.null(result$data) && inherits(result$data, "data.frame")) {
+      parsed_updates[[length(parsed_updates) + 1L]] <<- .brf_parsed_strip_attrs(result$data)
+      refresh_dates <<- unique(c(refresh_dates, result$date))
     }
-    new_parsed[[length(new_parsed) + 1L]] <<- result
-    parsed_files <<- c(parsed_files, path)
   }
   for (raw_day in target_days) {
     day_date <- as.Date(raw_day, origin = "1970-01-01")
     file_name <- paste0(root, "_", format(day_date, "%Y-%m-%d"), ".html")
     dest <- file.path(raw_dir, file_name)
     if (file.exists(dest)) {
-      already_cached <- nrow(current) && day_date %in% current$date
+      already_cached <- nrow(current) && day_date %in% as.Date(current$date)
       already_skipped <- length(skip_dates) && day_date %in% skip_dates
       if (!already_cached && !already_skipped) {
         preexisting_needed <- c(preexisting_needed, dest)
@@ -232,32 +297,52 @@ update_brfut <- function(root = NULL,
       next
     }
     newly_downloaded <- c(newly_downloaded, .brf_download_html(day_date, root, quiet = quiet))
-    parse_path(dest)
+    ensure_path(dest)
   }
   if (!quiet && length(newly_downloaded)) {
     message("Root ", root, ": downloaded ", length(newly_downloaded), " report(s).")
   }
   parsed_needed <- newly_downloaded
   data_path <- .brf_root_data_path(root, create = FALSE)
-  if (!file.exists(data_path)) {
+  existing_parsed_files <- .brf_list_parsed_files(root)
+  if (!file.exists(data_path) || !length(existing_parsed_files)) {
     parsed_needed <- list.files(raw_dir, pattern = "\\.html$", full.names = TRUE)
   }
   parsed_needed <- unique(c(parsed_needed, preexisting_needed))
-  parsed_needed <- setdiff(parsed_needed, parsed_files)
   parsed_needed <- parsed_needed[file.exists(parsed_needed)]
   if (length(skip_files)) {
     parsed_needed <- parsed_needed[!(basename(parsed_needed) %in% skip_files)]
   }
   if (length(parsed_needed)) {
     for (path in parsed_needed) {
-      parse_path(path)
+      ensure_path(path, force = path %in% preexisting_needed)
     }
   }
-  combined_sources <- list(current)
-  if (length(new_parsed)) {
-    combined_sources[[length(combined_sources) + 1L]] <- .brf_bind_rows(new_parsed)
+  refresh_dates <- unique(c(refresh_dates, skip_dates))
+  refresh_dates <- refresh_dates[!is.na(refresh_dates)]
+  if (nrow(current)) {
+    current$date <- as.Date(current$date)
   }
-  combined <- .brf_bind_rows(combined_sources)
+  if (length(refresh_dates) && nrow(current)) {
+    current <- current[!(current$date %in% refresh_dates), , drop = FALSE]
+  }
+  additions <- if (length(parsed_updates)) {
+    out <- .brf_bind_rows(parsed_updates)
+    if (nrow(out)) {
+      out$date <- as.Date(out$date)
+    }
+    out
+  } else {
+    .brf_empty_bulletin()
+  }
+  combined_sources <- list()
+  if (nrow(current)) combined_sources[[length(combined_sources) + 1L]] <- current
+  if (nrow(additions)) combined_sources[[length(combined_sources) + 1L]] <- additions
+  combined <- if (length(combined_sources)) {
+    .brf_bind_rows(combined_sources)
+  } else {
+    .brf_empty_bulletin()
+  }
   combined <- .brf_prepare_root_data(root, combined, skip_dates = skip_dates)
   .brf_save_root_data(root, combined)
   if (!quiet) {
@@ -269,6 +354,7 @@ update_brfut <- function(root = NULL,
 .brf_rebuild_root_cache <- function(root, quiet = FALSE) {
   root <- .brf_normalize_root(root)
   raw_dir <- .brf_raw_dir(root, create = FALSE)
+  .brf_parsed_dir(root)
   if (!dir.exists(raw_dir)) {
     combined <- .brf_prepare_root_data(root, .brf_empty_bulletin())
     .brf_save_root_data(root, combined)
@@ -286,7 +372,12 @@ update_brfut <- function(root = NULL,
     }
     return(invisible(combined))
   }
-  .brf_handle_no_data_paths(html_files, root, quiet = quiet)
+  removed <- .brf_handle_no_data_paths(html_files, root, quiet = quiet)
+  if (is.data.frame(removed) && nrow(removed)) {
+    for (date_val in removed$date[!is.na(removed$date)]) {
+      .brf_remove_parsed_day(root, date_val)
+    }
+  }
   html_files <- list.files(raw_dir, pattern = "\\.html$", full.names = TRUE)
   if (!length(html_files)) {
     combined <- .brf_prepare_root_data(root, .brf_empty_bulletin())
@@ -296,28 +387,30 @@ update_brfut <- function(root = NULL,
     }
     return(invisible(combined))
   }
-  no_data_paths <- character()
-  parsed <- lapply(html_files, function(path) {
-    result <- tryCatch(.brf_parse_html_report(path, root), error = function(e) {
-      warning("Failed to parse ", basename(path), ": ", conditionMessage(e), call. = FALSE)
-      NULL
-    })
-    if (is.null(result) || !nrow(result) || isTRUE(attr(result, "brf_no_data"))) {
-      no_data_paths <<- c(no_data_paths, path)
-      return(NULL)
+  register_no_data <- function(paths) {
+    paths <- unique(paths)
+    if (!length(paths)) {
+      return()
     }
-    result
-  })
-  if (length(no_data_paths)) {
-    .brf_handle_no_data_paths(no_data_paths, root, quiet = quiet)
+    info <- .brf_handle_no_data_paths(paths, root, quiet = quiet)
+    if (is.data.frame(info) && nrow(info)) {
+      for (date_val in info$date[!is.na(info$date)]) {
+        .brf_remove_parsed_day(root, date_val)
+      }
+    }
   }
-  parsed <- Filter(Negate(is.null), parsed)
-  combined <- if (length(parsed)) {
-    .brf_bind_rows(parsed)
+  for (path in html_files) {
+    .brf_sync_parsed_report(path, root, register_no_data, force = FALSE, quiet = quiet)
+  }
+  skip_dates <- .brf_no_data_entries(root)$date
+  skip_dates <- skip_dates[!is.na(skip_dates)]
+  parsed_frames <- .brf_collect_parsed_data(root, skip_dates = skip_dates)
+  combined <- if (length(parsed_frames)) {
+    .brf_bind_rows(parsed_frames)
   } else {
     .brf_empty_bulletin()
   }
-  combined <- .brf_prepare_root_data(root, combined)
+  combined <- .brf_prepare_root_data(root, combined, skip_dates = skip_dates)
   .brf_save_root_data(root, combined)
   if (!quiet) {
     message("Root ", root, ": rebuilt cache with ", nrow(combined), " rows.")

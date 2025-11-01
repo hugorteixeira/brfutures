@@ -60,8 +60,13 @@
   sanitized <- vapply(columns, .brf_sanitize_colname, character(1), USE.NAMES = FALSE)
   mapping <- c(
     vencto = "contract_code",
+    contr = "contracts_traded",
+    negoc = "contracts_traded",
+    num = "volume",
     contr_abert_1 = "open_interest",
+    abert_1 = "open_interest",
     contr_fech_2 = "close_interest",
+    fech_2 = "close_interest",
     num_negoc = "trade_count",
     contr_negoc = "contracts_traded",
     vol = "volume",
@@ -89,6 +94,24 @@
   if (any(matched)) {
     updated[matched] <- mapping[sanitized[matched]]
   }
+  unmatched <- !matched
+  if (any(unmatched)) {
+    composite_mapping <- c(
+      preco_med = "average_price",
+      ult_preco = "close",
+      ajuste = "settlement_price",
+      var_ptos = "change_points",
+      ult_of_compra = "last_bid",
+      ult_of_venda = "last_ask"
+    )
+    for (pattern in names(composite_mapping)) {
+      hits <- unmatched & grepl(pattern, sanitized, fixed = TRUE)
+      if (any(hits)) {
+        updated[hits] <- composite_mapping[[pattern]]
+        unmatched[hits] <- FALSE
+      }
+    }
+  }
   updated
 }
 
@@ -98,6 +121,24 @@
   }
   out <- .brf_regular_treatment(df, ...)
   names(out) <- .brf_standardize_names(names(out))
+  legacy_fix <- c(
+    contr = "contracts_traded",
+    abert_1 = "open_interest",
+    fech_2 = "close_interest",
+    num = "volume"
+  )
+  hit <- names(out) %in% names(legacy_fix)
+  if (any(hit)) {
+    old <- names(out)[hit]
+    names(out)[hit] <- legacy_fix[old]
+  }
+  numeric_cols <- intersect(
+    c("contracts_traded", "open_interest", "close_interest", "volume"),
+    names(out)
+  )
+  if (length(numeric_cols)) {
+    out[numeric_cols] <- lapply(out[numeric_cols], .brf_pt_number)
+  }
   dup <- duplicated(names(out))
   if (any(dup)) {
     out <- out[, !dup, drop = FALSE]
@@ -300,7 +341,7 @@
   tickers <- as.character(df$ticker)
   pattern <- "^([A-Z]{3})([A-Z]{3})(\\d)$"
   matches <- regmatches(tickers, regexec(pattern, tickers, perl = TRUE))
-  root_map <- c(BOI = "BGI")
+  root_map <- c(BOI = "BGI", ICN = "CCM")
   for (i in seq_along(matches)) {
     m <- matches[[i]]
     if (length(m) != 4) {
@@ -432,19 +473,28 @@
     "contract_code",
     "vencto",
     "contr_abert_1",
+    "open_interest",
     "contr_fech_2",
+    "close_interest",
     "num_negoc",
+    "trade_count",
     "preco_med",
+    "average_price",
     "ajuste",
+    "settlement_price",
     "var_ptos",
+    "change_points",
     "ult_of_compra",
-    "ult_of_venda"
+    "last_bid",
+    "ult_of_venda",
+    "last_ask"
   )
   keep_cols <- setdiff(names(cleaned), drop_cols)
   cleaned <- cleaned[, keep_cols, drop = FALSE]
   rename_map <- c(
     contr_negoc = "volume_qty",
     contract_negoc = "volume_qty",
+    contracts_traded = "volume_qty",
     vol = "volume",
     preco_abert = "open",
     preco_min = "low",

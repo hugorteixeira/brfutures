@@ -100,6 +100,9 @@
   if (is.null(x)) {
     return(numeric())
   }
+  if (is.numeric(x)) {
+    return(as.numeric(x))
+  }
   out <- trimws(as.character(x))
   out[out %in% c("", "&nbsp;", "&NBSP;")] <- NA_character_
   negative <- grepl("\\-$", out)
