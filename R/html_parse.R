@@ -192,10 +192,44 @@
               i <- i + 2
               next
             }
+            # Keep abbreviated headers together (e.g. "CONTR." + "ABERT.(1)")
+            current_token <- parts[i]
+            next_token <- parts[i + 1]
+            combine_abbrev <- grepl("\\.$", current_token) &&
+              (grepl("\\.$", next_token) || grepl("\\(|\\d", next_token) || grepl("^[A-Z]{2,}$", next_token))
+            combine_compact <- !grepl("\\s", current_token) &&
+              !grepl("\\.$", current_token) &&
+              grepl("\\.$", next_token) &&
+              nchar(current_token) <= 6 &&
+              grepl("^[A-Z0-9]", current_token)
+            if (combine_abbrev) {
+              expanded_tokens <- c(expanded_tokens, two_word)
+              i <- i + 2
+              next
+            } else if (combine_compact) {
+              expanded_tokens <- c(expanded_tokens, two_word)
+              i <- i + 2
+              next
+            }
           }
           # No pattern matched, add single word
           expanded_tokens <- c(expanded_tokens, parts[i])
           i <- i + 1
+        }
+        if (length(expanded_tokens) >= 2) {
+          merged_tokens <- character()
+          j <- 1
+          while (j <= length(expanded_tokens)) {
+            current <- expanded_tokens[j]
+            if (j < length(expanded_tokens) && grepl("^\\([0-9]+\\)$", expanded_tokens[j + 1])) {
+              merged_tokens <- c(merged_tokens, paste(current, expanded_tokens[j + 1]))
+              j <- j + 2
+            } else {
+              merged_tokens <- c(merged_tokens, current)
+              j <- j + 1
+            }
+          }
+          expanded_tokens <- merged_tokens
         }
       } else {
         # Single word token, keep as-is
@@ -511,13 +545,13 @@
   # If canonical != sanitized, then standardization succeeded, so skip token matching
   successfully_standardized <- canonical != sanitized
   token_hits <- lapply(seq_along(sanitized), function(i) {
-    if (successfully_standardized[i]) {
-      # Skip token matching for already-standardized columns
-      character()
-    } else {
-      # Apply token matching for composite/unstandardized columns
-      hits <- token_targets[vapply(names(token_targets), function(token) grepl(token, sanitized[i], fixed = TRUE), logical(1))]
+    hits <- token_targets[vapply(names(token_targets), function(token) grepl(token, sanitized[i], fixed = TRUE), logical(1))]
+    if (length(hits) > 1L) {
       hits
+    } else if (length(hits) == 1L && !successfully_standardized[i]) {
+      hits
+    } else {
+      character()
     }
   })
   dup <- duplicated(canonical)

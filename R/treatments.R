@@ -121,19 +121,19 @@
   }
   out <- .brf_regular_treatment(df, ...)
   names(out) <- .brf_standardize_names(names(out))
-  legacy_fix <- c(
-    contr = "contracts_traded",
-    abert_1 = "open_interest",
-    fech_2 = "close_interest",
-    num = "volume"
-  )
-  hit <- names(out) %in% names(legacy_fix)
-  if (any(hit)) {
-    old <- names(out)[hit]
-    names(out)[hit] <- legacy_fix[old]
-  }
+  # legacy_fix <- c(
+  #   contr = "contracts_traded",
+  #   abert_1 = "open_interest",
+  #   fech_2 = "close_interest",
+  #   num = "volume"
+  # )
+  # hit <- names(out) %in% names(legacy_fix)
+  # if (any(hit)) {
+  #   old <- names(out)[hit]
+  #   names(out)[hit] <- legacy_fix[old]
+  # }
   numeric_cols <- intersect(
-    c("contracts_traded", "open_interest", "close_interest", "volume"),
+    c("open_interest", "close_interest", "contracts_traded", "volume"),
     names(out)
   )
   if (length(numeric_cols)) {
@@ -561,12 +561,159 @@
 }
 
 .brf_add_futures_attrs <- function(data, ticker) {
-  if (startsWith(ticker, "CCM")) {
+  if (is.null(data) || is.atomic(data)) {
+    return(data)
+  }
+  if (startsWith(ticker, "WIN")) {
+    data <- .brf_add_futures_win(data, ticker)
+  } else if (startsWith(ticker, "WDO")) {
+    data <- .brf_add_futures_wdo(data, ticker)
+  } else if (startsWith(ticker, "IND")) {
+    data <- .brf_add_futures_ind(data, ticker)
+  } else if (startsWith(ticker, "DOL")) {
+    data <- .brf_add_futures_dol(data, ticker)
+  } else if (startsWith(ticker, "BIT")) {
+    data <- .brf_add_futures_bit(data, ticker)
+  } else if (startsWith(ticker, "DI1")) {
+    data <- .brf_add_futures_di(data, ticker)
+  } else if (startsWith(ticker, "ICF")) {
+    data <- .brf_add_futures_icf(data, ticker)
+  } else if (startsWith(ticker, "BGI")) {
+    data <- .brf_add_futures_bgi(data, ticker)
+  } else if (startsWith(ticker, "CCM")) {
     data <- .brf_add_futures_ccm(data, ticker)
+  } else {
+    data <- .brf_add_futures_generic(data, ticker)
   }
   return(data)
 }
 
+.brf_add_futures_win <- function(data, ticker) {
+  attr(data, "fut_slippage") <- 0.01
+  attr(data, "fut_fees") <- 1
+  attr(data, "fut_tick_size") <- 5
+  attr(data, "fut_multiplier") <- 0.2
+
+  attr_slippage <- attr(data, "fut_slippage")
+  attr_fees <- attr(data, "fut_fees")
+  print(str(data))
+  FinancialInstrument::currency("USD")
+  FinancialInstrument::future(ticker,
+    currency = "USD",
+    multiplier = 0.2, tick_size = 5,
+    identifiers = list(slippage = attr_slippage, fees = attr_fees),
+    overwrite = TRUE
+  )
+  return(data)
+}
+.brf_add_futures_wdo <- function(data, ticker) {
+  attr(data, "fut_slippage") <- 0.01
+  attr(data, "fut_fees") <- 1
+  attr(data, "fut_tick_size") <- 0.5
+  attr(data, "fut_multiplier") <- 10
+
+  attr_slippage <- attr(data, "fut_slippage")
+  attr_fees <- attr(data, "fut_fees")
+  print(str(data))
+  FinancialInstrument::currency("USD")
+  FinancialInstrument::future(ticker,
+    currency = "USD",
+    multiplier = 10, tick_size = 0.5,
+    identifiers = list(slippage = attr_slippage, fees = attr_fees),
+    overwrite = TRUE
+  )
+  return(data)
+}
+.brf_add_futures_bit <- function(data, ticker) {
+  attr(data, "fut_slippage") <- 0.07
+  attr(data, "fut_fees") <- 10
+  attr(data, "fut_tick_size") <- 0.01
+  attr(data, "fut_multiplier") <- 450
+
+  attr_slippage <- attr(data, "fut_slippage")
+  attr_fees <- attr(data, "fut_fees")
+  print(str(data))
+  FinancialInstrument::currency("USD")
+  FinancialInstrument::future(ticker,
+    currency = "USD",
+    multiplier = 450, tick_size = 0.01,
+    identifiers = list(slippage = attr_slippage, fees = attr_fees),
+    overwrite = TRUE
+  )
+  return(data)
+}
+.brf_add_futures_ind <- function(data, ticker) {
+  attr(data, "fut_slippage") <- 0.07
+  attr(data, "fut_fees") <- 10
+  attr(data, "fut_tick_size") <- 0.01
+  attr(data, "fut_multiplier") <- 450
+
+  attr_slippage <- attr(data, "fut_slippage")
+  attr_fees <- attr(data, "fut_fees")
+  print(str(data))
+  FinancialInstrument::currency("USD")
+  FinancialInstrument::future(ticker,
+    currency = "USD",
+    multiplier = 450, tick_size = 0.01,
+    identifiers = list(slippage = attr_slippage, fees = attr_fees),
+    overwrite = TRUE
+  )
+  return(data)
+}
+.brf_add_futures_dol <- function(data, ticker) {
+  attr(data, "fut_slippage") <- 0.07
+  attr(data, "fut_fees") <- 10
+  attr(data, "fut_tick_size") <- 0.01
+  attr(data, "fut_multiplier") <- 450
+
+  attr_slippage <- attr(data, "fut_slippage")
+  attr_fees <- attr(data, "fut_fees")
+  print(str(data))
+  FinancialInstrument::currency("USD")
+  FinancialInstrument::future(ticker,
+    currency = "USD",
+    multiplier = 450, tick_size = 0.01,
+    identifiers = list(slippage = attr_slippage, fees = attr_fees),
+    overwrite = TRUE
+  )
+  return(data)
+}
+.brf_add_futures_di <- function(data, ticker) {
+  attr(data, "fut_slippage") <- 0.01
+  attr(data, "fut_fees") <- 10
+  attr(data, "fut_tick_size") <- 0.01
+  attr(data, "fut_multiplier") <- 450
+
+  attr_slippage <- attr(data, "fut_slippage")
+  attr_fees <- attr(data, "fut_fees")
+  print(str(data))
+  FinancialInstrument::currency("USD")
+  FinancialInstrument::future(ticker,
+    currency = "USD",
+    multiplier = 450, tick_size = 0.01,
+    identifiers = list(slippage = attr_slippage, fees = attr_fees),
+    overwrite = TRUE
+  )
+  return(data)
+}
+.brf_add_futures_icf <- function(data, ticker) {
+  attr(data, "fut_slippage") <- 0.07
+  attr(data, "fut_fees") <- 10
+  attr(data, "fut_tick_size") <- 0.01
+  attr(data, "fut_multiplier") <- 450
+
+  attr_slippage <- attr(data, "fut_slippage")
+  attr_fees <- attr(data, "fut_fees")
+  print(str(data))
+  FinancialInstrument::currency("USD")
+  FinancialInstrument::future(ticker,
+    currency = "USD",
+    multiplier = 450, tick_size = 0.01,
+    identifiers = list(slippage = attr_slippage, fees = attr_fees),
+    overwrite = TRUE
+  )
+  return(data)
+}
 .brf_add_futures_ccm <- function(data, ticker) {
   attr(data, "fut_slippage") <- 0.07
   attr(data, "fut_fees") <- 10
@@ -580,6 +727,42 @@
   FinancialInstrument::future(ticker,
     currency = "USD",
     multiplier = 450, tick_size = 0.01,
+    identifiers = list(slippage = attr_slippage, fees = attr_fees),
+    overwrite = TRUE
+  )
+  return(data)
+}
+.brf_add_futures_bgi <- function(data, ticker) {
+  attr(data, "fut_slippage") <- 0.35
+  attr(data, "fut_fees") <- 14
+  attr(data, "fut_tick_size") <- 0.05
+  attr(data, "fut_multiplier") <- 330
+
+  attr_slippage <- attr(data, "fut_slippage")
+  attr_fees <- attr(data, "fut_fees")
+  print(str(data))
+  FinancialInstrument::currency("USD")
+  FinancialInstrument::future(ticker,
+    currency = "USD",
+    multiplier = 330, tick_size = 0.05,
+    identifiers = list(slippage = attr_slippage, fees = attr_fees),
+    overwrite = TRUE
+  )
+  return(data)
+}
+.brf_add_futures_generic <- function(data, ticker) {
+  attr(data, "fut_slippage") <- 0.02
+  attr(data, "fut_fees") <- 10
+  attr(data, "fut_tick_size") <- 0.01
+  attr(data, "fut_multiplier") <- 1
+
+  attr_slippage <- attr(data, "fut_slippage")
+  attr_fees <- attr(data, "fut_fees")
+  print(str(data))
+  FinancialInstrument::currency("USD")
+  FinancialInstrument::future(ticker,
+    currency = "USD",
+    multiplier = 1, tick_size = 0.01,
     identifiers = list(slippage = attr_slippage, fees = attr_fees),
     overwrite = TRUE
   )

@@ -9,8 +9,8 @@ sample_html <- function(path) {
     "<tr><td>WINM24</td></tr>",
     "</table></div>",
     "<div id='MercadoFut1'><table>",
-    "<tr><td>VENCTO</td><td>CONTR. ABERT.(1)</td><td>NUM. NEGOC.</td><td>CONTR. NEGOC.</td><td>VOL.</td></tr>",
-    "<tr><td>WINM24</td><td>1.234</td><td>10</td><td>500</td><td>1.000</td></tr>",
+    "<tr><td>VENCTO</td><td>CONTR. ABERT.(1)</td><td>CONTR. FECH.(2)</td><td>NUM. NEGOC.</td><td>CONTR. NEGOC.</td><td>VOL.</td></tr>",
+    "<tr><td>WINM24</td><td>1.234</td><td>2.345</td><td>10</td><td>500</td><td>1.000</td></tr>",
     "</table></div>",
     "<div id='MercadoFut2'><table>",
     "<tr><td rowspan='2'>VENCTO</td><td colspan='5'>Cotacoes</td></tr>",
@@ -70,6 +70,17 @@ test_that("HTML parser keeps raw column names", {
   expect_equal(regular$`PRECO ABERT.`, 120000)
   standard <- brfutures:::`.brf_standard_treatment`(parsed)
   expect_equal(standard$open, 120000)
+  expect_equal(standard$contracts_traded, 500)
+  expect_equal(standard$open_interest, 1234)
+  expect_equal(standard$close_interest, 2345)
+  expect_equal(standard$trade_count, 10)
+  expect_equal(standard$volume, 1000)
+  cleaned <- brfutures:::`.brf_parse_html_report_clean`(tmp, "WIN")
+  expect_equal(cleaned$contracts_traded, 500)
+  expect_equal(cleaned$open_interest, 1234)
+  expect_equal(cleaned$close_interest, 2345)
+  expect_equal(cleaned$trade_count, 10)
+  expect_equal(cleaned$volume, 1000)
 })
 
 test_that("parsed cache stores canonical daily data", {
