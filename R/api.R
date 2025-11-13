@@ -533,8 +533,10 @@ get_brfut <- function(ticker,
   data <- data[order(data$date, data$ticker), , drop = FALSE]
   treatment_fn <- .brf_resolve_treatment(treatment)
   finish <- treatment_fn(data, ...)
-  if (add_attrs) finish <- .brf_add_futures_attrs(finish, ticker)
-  return(finish)
+  estimated <- .brf_estimate_maturity(finish)
+
+  if (add_attrs) estimated <- .brf_add_futures_attrs(estimated, ticker)
+  return(estimated)
 }
 
 #' Load all cached bulletins within a date range

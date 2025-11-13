@@ -172,29 +172,36 @@
 
 .brf_treatment_standard_xts <- function(df, ...) {
   std <- .brf_standard_treatment(df, ...)
-  if (!nrow(std) || !"date" %in% names(std)) {
+  .brf_standard_xts_from_df(std)
+}
+
+.brf_standard_xts_from_df <- function(std) {
+  if (!is.data.frame(std) || !nrow(std) || !"date" %in% names(std)) {
     return(xts::xts())
   }
 
-  # Ensure daily Date index
   order_dates <- as.Date(std$date)
-
-  # Keep only expected columns if present
+  maturity_vals <- NULL
+  if ("maturity" %in% names(std)) {
+    maturity_vals <- suppressWarnings(as.Date(std$maturity))
+  }
   keep_cols <- intersect(
-    c("open", "high", "low", "close", "volume", "contracts_traded"),
+    c(
+      "open", "high", "low", "close",
+      "volume", "contracts_traded",
+      "PU_open", "PU_high", "PU_low", "PU_close"
+    ),
     names(std)
   )
   if (!length(keep_cols)) {
     return(xts::xts(order.by = order_dates[integer(0)]))
   }
 
-  # Force numeric quietly
   numeric_data <- std[keep_cols]
   numeric_data[] <- lapply(numeric_data, function(col) {
     if (is.numeric(col)) col else suppressWarnings(as.numeric(col))
   })
 
-  # Build matrix and canonical names
   matrix_data <- as.matrix(numeric_data)
   col_map <- c(
     open = "Open",
@@ -202,13 +209,21 @@
     low = "Low",
     close = "Close",
     volume = "Volume",
-    contracts_traded = "Volume_Qty"
+    contracts_traded = "Volume_Qty",
+    PU_open = "PU_open",
+    PU_high = "PU_high",
+    PU_low = "PU_low",
+    PU_close = "PU_close"
   )
   colnames(matrix_data) <- col_map[keep_cols]
 
-  # Drop invalid dates only (no semantics change here)
   valid <- !is.na(order_dates)
-  xts::xts(matrix_data[valid, , drop = FALSE], order.by = order_dates[valid])
+  result <- xts::xts(matrix_data[valid, , drop = FALSE], order.by = order_dates[valid])
+  if (!is.null(maturity_vals)) {
+    mat_subset <- maturity_vals[valid]
+    attr(result, "maturity") <- mat_subset
+  }
+  result
 }
 
 # Helper: drop rows where ALL selected columns are zero (within tolerance)
@@ -252,7 +267,8 @@
   na_rm = TRUE, # remove leading NAs before fill
   eps = 0 # zero tolerance for detection
 ) {
-  x <- .brf_treatment_standard_xts(df, ...)
+  std <- .brf_standard_treatment(df, ...)
+  x <- .brf_standard_xts_from_df(std)
   if (NROW(x) == 0) {
     return(x)
   }
@@ -561,7 +577,10 @@
 }
 
 .brf_add_futures_attrs <- function(data, ticker) {
-  if (is.null(data) || is.atomic(data)) {
+  if (is.null(data)) {
+    return(data)
+  }
+  if (is.atomic(data) && !(xts::is.xts(data))) {
     return(data)
   }
   if (startsWith(ticker, "WIN")) {
@@ -683,7 +702,12 @@
   attr(data, "fut_fees") <- 10
   attr(data, "fut_tick_size") <- 0.01
   attr(data, "fut_multiplier") <- 450
-
+  if (xts::is.xts(data)) {
+    data <- .brf_di_add_pu_xts(data, ticker)
+  } else if (is.data.frame(data)) {
+    data <- .brf_di_add_pu_columns(data)
+  }
+  print(str(data))
   attr_slippage <- attr(data, "fut_slippage")
   attr_fees <- attr(data, "fut_fees")
   print(str(data))

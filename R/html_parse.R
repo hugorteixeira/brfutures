@@ -545,10 +545,15 @@
   # If canonical != sanitized, then standardization succeeded, so skip token matching
   successfully_standardized <- canonical != sanitized
   token_hits <- lapply(seq_along(sanitized), function(i) {
-    hits <- token_targets[vapply(names(token_targets), function(token) grepl(token, sanitized[i], fixed = TRUE), logical(1))]
-    if (length(hits) > 1L) {
+    hits <- token_targets[vapply(
+      names(token_targets),
+      function(token) grepl(token, sanitized[i], fixed = TRUE),
+      logical(1)
+    )]
+    needs_expansion <- !successfully_standardized[i]
+    if (needs_expansion && length(hits) > 1L) {
       hits
-    } else if (length(hits) == 1L && !successfully_standardized[i]) {
+    } else if (needs_expansion && length(hits) == 1L) {
       hits
     } else {
       character()

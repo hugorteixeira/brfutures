@@ -19,7 +19,8 @@ Imports:
     xml2,
     rvest,
     xts,
-    tibble
+    tibble,
+    bizdays
 Suggests:
     testthat (>= 3.2.1)
 Config/testthat/edition: 3

@@ -313,6 +313,121 @@ test_that("get_brfut applies treatments", {
   expect_equal(agg_regular$open_interest, 1234)
 })
 
+test_that("DI futures add PU notional columns", {
+  skip_if_not_installed("bizdays")
+  di_rates <- data.frame(
+    date = as.Date(c("2024-01-02", "2024-01-08")),
+    maturity = as.Date(c("2024-02-01", "2024-02-01")),
+    root = "DI1",
+    contract_code = "DI1F24",
+    ticker = "DI1F24",
+    open = c(12.5, 13.0),
+    high = c(12.7, 13.2),
+    low = c(12.2, 12.95),
+    close = c(12.4, 13.05),
+    stringsAsFactors = FALSE
+  )
+  augmented <- brfutures:::`.brf_add_futures_di`(di_rates, "DI1F24")
+  expect_true(all(c("PU_open", "PU_high", "PU_low", "PU_close") %in% names(augmented)))
+  expect_true(all(vapply(augmented[c("PU_open", "PU_high", "PU_low", "PU_close")], is.numeric, logical(1))))
+
+  cal <- bizdays::create.calendar(
+    "test_cal",
+    holidays = bizdays::holidays("Brazil/ANBIMA"),
+    weekdays = c("saturday", "sunday")
+  )
+  valid_days <- bizdays::bizdays(di_rates$date, di_rates$maturity, cal) +
+    as.integer(bizdays::is.bizday(di_rates$date, cal))
+  expect_equal(
+    augmented$PU_open,
+    round(1e5 / (1 + di_rates$open / 100)^(valid_days / 252), 2)
+  )
+  expect_equal(
+    augmented$PU_close,
+    round(1e5 / (1 + di_rates$close / 100)^(valid_days / 252), 2)
+  )
+})
+
+test_that("DI xts treatment keeps PU columns", {
+  skip_if_not_installed("bizdays")
+  dates <- as.Date(c("2024-01-02", "2024-01-08"))
+  maturity <- as.Date("2024-02-01")
+  xts_ohlc <- xts::xts(
+    cbind(
+      Open = c(12.5, 13.0),
+      High = c(12.7, 13.2),
+      Low = c(12.2, 12.95),
+      Close = c(12.4, 13.05)
+    ),
+    order.by = dates
+  )
+  attr(xts_ohlc, "maturity") <- maturity
+  augmented_xts <- brfutures:::`.brf_di_add_pu_xts`(xts_ohlc, "DI1F24")
+  pu_cols <- c("PU_open", "PU_high", "PU_low", "PU_close")
+  expect_true(all(pu_cols %in% colnames(augmented_xts)))
+
+  cal <- bizdays::create.calendar(
+    "test_cal_xts",
+    holidays = bizdays::holidays("Brazil/ANBIMA"),
+    weekdays = c("saturday", "sunday")
+  )
+  valid_days <- bizdays::bizdays(dates, maturity, cal) +
+    as.integer(bizdays::is.bizday(dates, cal))
+  expected_close <- round(1e5 / (1 + c(12.4, 13.05) / 100)^(valid_days / 252), 2)
+  expect_equal(
+    as.numeric(augmented_xts$PU_close),
+    expected_close
+  )
+})
+
+test_that("get_brfut xts treatments attach DI PU columns", {
+  skip_if_not_installed("bizdays")
+  cache <- tempfile("brf-cache-di-")
+  dir.create(cache, recursive = TRUE, showWarnings = FALSE)
+  old_opt <- getOption("brfutures.cache_dir")
+  on.exit({
+    options(brfutures.cache_dir = old_opt)
+    unlink(cache, recursive = TRUE)
+  }, add = TRUE)
+  options(brfutures.cache_dir = cache)
+
+  root_dir <- file.path(cache, "DI1")
+  dir.create(file.path(root_dir, "raw"), recursive = TRUE, showWarnings = FALSE)
+  di_rows <- data.frame(
+    date = as.Date("2023-03-01") + 0:2,
+    root = "DI1",
+    contract_code = "DI1F27",
+    ticker = "DI1F27",
+    open_interest = 1,
+    close_interest = 1,
+    trade_count = 1,
+    contracts_traded = 1,
+    volume = 1,
+    open = c(12.5, 12.55, 12.6),
+    high = c(12.7, 12.75, 12.8),
+    low = c(12.2, 12.25, 12.3),
+    close = c(12.4, 12.45, 12.5),
+    settlement_price = 50000,
+    change_points = 0,
+    last_bid = 0,
+    last_ask = 0,
+    previous_settlement = 50000,
+    corrected_settlement = 50000,
+    maturity = as.Date("2027-01-03"),
+    stringsAsFactors = FALSE
+  )
+  saveRDS(di_rows, file.path(root_dir, "DI1.rds"))
+  saveRDS(di_rows, file.path(cache, "aggregate.rds"))
+
+  locf_xts <- get_brfut("DI1F27", treatment = "ohlcv_locf_xts")
+  drop0_xts <- get_brfut("DI1F27", treatment = "ohlcv_drop0_xts")
+  pu_cols <- c("PU_open", "PU_high", "PU_low", "PU_close")
+  expect_true(all(pu_cols %in% colnames(locf_xts)))
+  expect_true(all(pu_cols %in% colnames(drop0_xts)))
+  expect_true(all(is.finite(as.matrix(locf_xts[, pu_cols]))))
+  expect_true(all(is.finite(as.matrix(drop0_xts[, pu_cols]))))
+})
+
 test_that("corrupted root cache is rebuilt automatically", {
   cache <- tempfile("brf-cache-")
   dir.create(cache, recursive = TRUE, showWarnings = FALSE)
