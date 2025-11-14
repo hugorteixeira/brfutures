@@ -550,14 +550,8 @@
       function(token) grepl(token, sanitized[i], fixed = TRUE),
       logical(1)
     )]
-    needs_expansion <- !successfully_standardized[i]
-    if (needs_expansion && length(hits) > 1L) {
-      hits
-    } else if (needs_expansion && length(hits) == 1L) {
-      hits
-    } else {
-      character()
-    }
+    needs_expansion <- !successfully_standardized[i] || length(hits) > 1L
+    if (needs_expansion && length(hits)) hits else character()
   })
   dup <- duplicated(canonical)
   keep_idx <- !dup

@@ -328,8 +328,8 @@ test_that("DI futures add PU notional columns", {
     stringsAsFactors = FALSE
   )
   augmented <- brfutures:::`.brf_add_futures_di`(di_rates, "DI1F24")
-  expect_true(all(c("PU_open", "PU_high", "PU_low", "PU_close") %in% names(augmented)))
-  expect_true(all(vapply(augmented[c("PU_open", "PU_high", "PU_low", "PU_close")], is.numeric, logical(1))))
+  expect_true(all(c("PU_open", "PU_high", "PU_low", "PU_close", "TickSize") %in% names(augmented)))
+  expect_true(all(vapply(augmented[c("PU_open", "PU_high", "PU_low", "PU_close", "TickSize")], is.numeric, logical(1))))
 
   cal <- bizdays::create.calendar(
     "test_cal",
@@ -346,6 +346,14 @@ test_that("DI futures add PU notional columns", {
     augmented$PU_close,
     round(1e5 / (1 + di_rates$close / 100)^(valid_days / 252), 2)
   )
+  months_bucket <- brfutures:::`.brf_di_months_between_floor`(di_rates$date, di_rates$maturity)
+  expected_tick <- mapply(
+    brfutures:::`.brf_di_get_tick_size`,
+    months_bucket,
+    di_rates$date,
+    SIMPLIFY = TRUE
+  )
+  expect_equal(augmented$TickSize, expected_tick)
 })
 
 test_that("DI xts treatment keeps PU columns", {
@@ -363,7 +371,7 @@ test_that("DI xts treatment keeps PU columns", {
   )
   attr(xts_ohlc, "maturity") <- maturity
   augmented_xts <- brfutures:::`.brf_di_add_pu_xts`(xts_ohlc, "DI1F24")
-  pu_cols <- c("PU_open", "PU_high", "PU_low", "PU_close")
+  pu_cols <- c("PU_open", "PU_high", "PU_low", "PU_close", "TickSize")
   expect_true(all(pu_cols %in% colnames(augmented_xts)))
 
   cal <- bizdays::create.calendar(
@@ -374,10 +382,15 @@ test_that("DI xts treatment keeps PU columns", {
   valid_days <- bizdays::bizdays(dates, maturity, cal) +
     as.integer(bizdays::is.bizday(dates, cal))
   expected_close <- round(1e5 / (1 + c(12.4, 13.05) / 100)^(valid_days / 252), 2)
-  expect_equal(
-    as.numeric(augmented_xts$PU_close),
-    expected_close
+  expect_equal(as.numeric(augmented_xts$PU_close), expected_close)
+  months_bucket <- brfutures:::`.brf_di_months_between_floor`(dates, maturity)
+  expected_tick <- mapply(
+    brfutures:::`.brf_di_get_tick_size`,
+    months_bucket,
+    dates,
+    SIMPLIFY = TRUE
   )
+  expect_equal(as.numeric(augmented_xts$TickSize), expected_tick)
 })
 
 test_that("get_brfut xts treatments attach DI PU columns", {
@@ -421,11 +434,13 @@ test_that("get_brfut xts treatments attach DI PU columns", {
 
   locf_xts <- get_brfut("DI1F27", treatment = "ohlcv_locf_xts")
   drop0_xts <- get_brfut("DI1F27", treatment = "ohlcv_drop0_xts")
-  pu_cols <- c("PU_open", "PU_high", "PU_low", "PU_close")
+  pu_cols <- c("PU_open", "PU_high", "PU_low", "PU_close", "TickSize")
   expect_true(all(pu_cols %in% colnames(locf_xts)))
   expect_true(all(pu_cols %in% colnames(drop0_xts)))
   expect_true(all(is.finite(as.matrix(locf_xts[, pu_cols]))))
   expect_true(all(is.finite(as.matrix(drop0_xts[, pu_cols]))))
+  expect_length(attr(locf_xts, "maturity"), 1)
+  expect_length(attr(drop0_xts, "maturity"), 1)
 })
 
 test_that("corrupted root cache is rebuilt automatically", {

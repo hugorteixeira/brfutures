@@ -38,7 +38,9 @@
   "change_percent",
   "change_points",
   "last_bid",
-  "last_ask"
+  "last_ask",
+  "tick_size",
+  "ticksize"
 )
 
 .brf_regular_treatment <- function(df, ...) {
@@ -87,7 +89,9 @@
     osc = "change_percent",
     var_ptos = "change_points",
     ult_of_compra = "last_bid",
-    ult_of_venda = "last_ask"
+    ult_of_venda = "last_ask",
+    tick_size = "TickSize",
+    ticksize = "TickSize"
   )
   updated <- columns
   matched <- sanitized %in% names(mapping)
@@ -181,20 +185,23 @@
   }
 
   order_dates <- as.Date(std$date)
-  maturity_vals <- NULL
-  if ("maturity" %in% names(std)) {
-    maturity_vals <- suppressWarnings(as.Date(std$maturity))
-  }
+
   keep_cols <- intersect(
     c(
       "open", "high", "low", "close",
       "volume", "contracts_traded",
-      "PU_open", "PU_high", "PU_low", "PU_close"
+      "PU_open", "PU_high", "PU_low", "PU_close",
+      "tick_size"
     ),
     names(std)
   )
   if (!length(keep_cols)) {
     return(xts::xts(order.by = order_dates[integer(0)]))
+  }
+
+  maturity_vals <- NULL
+  if ("maturity" %in% names(std)) {
+    maturity_vals <- suppressWarnings(as.Date(std$maturity))
   }
 
   numeric_data <- std[keep_cols]
@@ -213,7 +220,8 @@
     PU_open = "PU_open",
     PU_high = "PU_high",
     PU_low = "PU_low",
-    PU_close = "PU_close"
+    PU_close = "PU_close",
+    tick_size = "TickSize"
   )
   colnames(matrix_data) <- col_map[keep_cols]
 
@@ -221,7 +229,10 @@
   result <- xts::xts(matrix_data[valid, , drop = FALSE], order.by = order_dates[valid])
   if (!is.null(maturity_vals)) {
     mat_subset <- maturity_vals[valid]
-    attr(result, "maturity") <- mat_subset
+    mat_subset <- mat_subset[!is.na(mat_subset)]
+    if (length(mat_subset)) {
+      attr(result, "maturity") <- mat_subset[1]
+    }
   }
   result
 }
@@ -580,7 +591,7 @@
   if (is.null(data)) {
     return(data)
   }
-  if (is.atomic(data) && !(xts::is.xts(data))) {
+  if (!xts::is.xts(data) && is.atomic(data)) {
     return(data)
   }
   if (startsWith(ticker, "WIN")) {
@@ -702,15 +713,14 @@
   attr(data, "fut_fees") <- 10
   attr(data, "fut_tick_size") <- 0.01
   attr(data, "fut_multiplier") <- 450
+  attr(data, "subcategoria") <- "Juros"
   if (xts::is.xts(data)) {
     data <- .brf_di_add_pu_xts(data, ticker)
   } else if (is.data.frame(data)) {
     data <- .brf_di_add_pu_columns(data)
   }
-  print(str(data))
   attr_slippage <- attr(data, "fut_slippage")
   attr_fees <- attr(data, "fut_fees")
-  print(str(data))
   FinancialInstrument::currency("USD")
   FinancialInstrument::future(ticker,
     currency = "USD",

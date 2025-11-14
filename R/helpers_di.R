@@ -158,7 +158,9 @@
   find_first <- function(candidates) {
     idx <- match(candidates, nm, nomatch = 0L)
     idx <- idx[idx > 0L]
-    if (length(idx) == 0L) return(NA_integer_)
+    if (length(idx) == 0L) {
+      return(NA_integer_)
+    }
     idx[1L]
   }
   open_idx <- find_first(c("open", "o"))
@@ -179,8 +181,12 @@
 }
 
 .brf_di_resolve_maturity_input <- function(maturity_date, x = NULL) {
-  if (!is.null(maturity_date)) return(maturity_date)
-  if (is.null(x)) return(maturity_date)
+  if (!is.null(maturity_date)) {
+    return(maturity_date)
+  }
+  if (is.null(x)) {
+    return(maturity_date)
+  }
 
   attr_val <- attr(x, "maturity", exact = TRUE)
   if (is.null(attr_val)) {
@@ -189,13 +195,19 @@
       attr_val <- attrs[["maturity"]]
     }
   }
-  if (is.null(attr_val)) return(maturity_date)
+  if (is.null(attr_val)) {
+    return(maturity_date)
+  }
 
   if (length(attr_val) > 1) attr_val <- attr_val[[1]]
   if (is.list(attr_val)) attr_val <- attr_val[[1]]
 
-  if (inherits(attr_val, "Date")) return(attr_val)
-  if (inherits(attr_val, "POSIXt")) return(as.Date(attr_val))
+  if (inherits(attr_val, "Date")) {
+    return(attr_val)
+  }
+  if (inherits(attr_val, "POSIXt")) {
+    return(as.Date(attr_val))
+  }
   if (is.character(attr_val)) {
     parsed <- as.Date(attr_val)
     if (any(is.na(parsed)) && grepl("^\\d{8}$", attr_val)) {
@@ -376,8 +388,7 @@ estimate_pu_from_daily_ohlc <- function(open, high, low, close,
 
   mid <- if (is.finite(high) && is.finite(low)) (high + low) / 2 else NA_real_
 
-  rate_anchor <- switch(
-    prefer,
+  rate_anchor <- switch(prefer,
     average_price = pick_first(average_price, close, mid, open),
     close = pick_first(close, average_price, mid, open),
     mid = pick_first(mid, average_price, close, open),
@@ -437,7 +448,9 @@ ohlc_rates_to_pu_xts <- function(x,
                                  rule_change_date = as.Date("2025-08-25"),
                                  round_pu = TRUE) {
   if (!xts::is.xts(x)) stop("'x' must be an xts object.", call. = FALSE)
-  if (NROW(x) == 0) return(x)
+  if (NROW(x) == 0) {
+    return(x)
+  }
 
   cal <- .brf_di_resolve_calendar(cal)
   maturity_date <- .brf_di_resolve_maturity_input(maturity_date, x)
@@ -508,7 +521,9 @@ di_ohlc_to_pu_augmented_xts <- function(x,
                                         snap_rates_back = FALSE,
                                         include_diagnostics = FALSE) {
   if (!xts::is.xts(x)) stop("'x' must be an xts object.", call. = FALSE)
-  if (NROW(x) == 0) return(x)
+  if (NROW(x) == 0) {
+    return(x)
+  }
 
   cal <- .brf_di_resolve_calendar(cal)
   if (snap_rates_back && !include_diagnostics) include_diagnostics <- TRUE
@@ -642,11 +657,20 @@ di_ohlc_to_pu_augmented_xts <- function(x,
     bizdays::bizdays(basis, maturity, cal) + as.integer(bizdays::is.bizday(basis, cal))
   )
   valid_days[valid_days <= 0] <- NA_real_
+  months_bucket <- .brf_di_months_between_floor(basis, maturity)
+  tick_size <- mapply(
+    function(mm, bd) .brf_di_get_tick_size(mm, bd),
+    months_bucket,
+    basis,
+    SIMPLIFY = TRUE,
+    USE.NAMES = FALSE
+  )
   to_numeric <- function(col) as.numeric(data[[col]])
   data$PU_open <- .brf_di_pu_from_rate(to_numeric(open_col), valid_days, round_pu)
   data$PU_high <- .brf_di_pu_from_rate(to_numeric(high_col), valid_days, round_pu)
   data$PU_low <- .brf_di_pu_from_rate(to_numeric(low_col), valid_days, round_pu)
   data$PU_close <- .brf_di_pu_from_rate(to_numeric(close_col), valid_days, round_pu)
+  data$TickSize <- as.numeric(tick_size)
   data
 }
 
@@ -695,6 +719,14 @@ di_ohlc_to_pu_augmented_xts <- function(x,
       as.integer(bizdays::is.bizday(basis, cal))
   )
   valid_days[valid_days <= 0] <- NA_real_
+  months_bucket <- .brf_di_months_between_floor(basis, maturity_vec)
+  tick_size <- mapply(
+    function(mm, bd) .brf_di_get_tick_size(mm, bd),
+    months_bucket,
+    basis,
+    SIMPLIFY = TRUE,
+    USE.NAMES = FALSE
+  )
 
   build_pu <- function(col_name) {
     if (!(col_name %in% colnames(x))) {
@@ -708,7 +740,8 @@ di_ohlc_to_pu_augmented_xts <- function(x,
     PU_open = build_pu("Open"),
     PU_high = build_pu("High"),
     PU_low = build_pu("Low"),
-    PU_close = build_pu("Close")
+    PU_close = build_pu("Close"),
+    TickSize = as.numeric(tick_size)
   )
   keep_add <- vapply(additions, function(col) !is.null(col), logical(1))
   if (!any(keep_add)) {
@@ -722,6 +755,9 @@ di_ohlc_to_pu_augmented_xts <- function(x,
   }
 
   result <- cbind(x, pu_xts)
-  attr(result, "maturity") <- maturity_vec
+  unique_maturity <- unique(maturity_vec[!is.na(maturity_vec)])
+  if (length(unique_maturity)) {
+    attr(result, "maturity") <- unique_maturity[1]
+  }
   result
 }
