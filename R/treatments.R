@@ -40,7 +40,9 @@
   "last_bid",
   "last_ask",
   "tick_size",
-  "ticksize"
+  "ticksize",
+  "tick_value",
+  "tickvalue"
 )
 
 .brf_regular_treatment <- function(df, ...) {
@@ -91,7 +93,9 @@
     ult_of_compra = "last_bid",
     ult_of_venda = "last_ask",
     tick_size = "TickSize",
-    ticksize = "TickSize"
+    ticksize = "TickSize",
+    tick_value = "TickValue",
+    tickvalue = "TickValue"
   )
   updated <- columns
   matched <- sanitized %in% names(mapping)
@@ -266,6 +270,7 @@
   eps = 0 # numeric tolerance
 ) {
   x <- .brf_treatment_standard_xts(df, ...)
+  print(str(x))
   .brf_drop_all_zero_rows_xts(x, cols = cols, eps = eps)
 }
 
@@ -709,22 +714,22 @@
   return(data)
 }
 .brf_add_futures_di <- function(data, ticker) {
-  attr(data, "fut_slippage") <- 0.01
-  attr(data, "fut_fees") <- 10
-  attr(data, "fut_tick_size") <- 0.01
-  attr(data, "fut_multiplier") <- 450
-  attr(data, "subcategoria") <- "Juros"
   if (xts::is.xts(data)) {
     data <- .brf_di_add_pu_xts(data, ticker)
   } else if (is.data.frame(data)) {
     data <- .brf_di_add_pu_columns(data)
   }
+  attr(data, "fut_slippage") <- 0.01
+  attr(data, "fut_fees") <- 10
+  attr(data, "fut_tick_size") <- 0.01
+  attr(data, "fut_multiplier") <- 1
+  attr(data, "subcategoria") <- "Juros"
   attr_slippage <- attr(data, "fut_slippage")
   attr_fees <- attr(data, "fut_fees")
   FinancialInstrument::currency("USD")
   FinancialInstrument::future(ticker,
     currency = "USD",
-    multiplier = 450, tick_size = 0.01,
+    multiplier = 1, tick_size = 0.01,
     identifiers = list(slippage = attr_slippage, fees = attr_fees),
     overwrite = TRUE
   )

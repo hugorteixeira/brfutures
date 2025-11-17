@@ -11,6 +11,7 @@ get_brfut(
   treatment = "ohlcv_drop0_xts",
   add_attrs = TRUE,
   rebuild_agg = FALSE,
+  tz = "America/Sao_Paulo",
   ...
 )
 }

@@ -1,5 +1,3 @@
-# Helpers for DI futures ----------------------------------------------------
-
 .brf_di_env <- new.env(parent = emptyenv())
 .brf_di_env$calendar <- NULL
 
@@ -151,6 +149,42 @@
   bad <- !is.finite(pu) | pu <= 0 | !is.finite(valid_days) | valid_days <= 0
   rates[bad] <- NA_real_
   rates
+}
+
+.brf_di_tick_value_from_close <- function(close_rates, valid_days, tick_size) {
+  n <- length(close_rates)
+  if (!n) {
+    return(numeric())
+  }
+  rates <- as.numeric(close_rates)
+  valid_days <- rep_len(as.numeric(valid_days), n)
+  tick_size <- rep_len(as.numeric(tick_size), n)
+  result <- rep(NA_real_, n)
+  valid <- is.finite(rates) &
+    is.finite(valid_days) & valid_days > 0 &
+    is.finite(tick_size) & tick_size > 0
+  if (!any(valid)) {
+    return(result)
+  }
+  r_close <- rates[valid] / 100
+  tick_decimal <- tick_size[valid] / 100
+  exponent <- valid_days[valid] / 252
+  base_0 <- 1 + r_close
+  base_1 <- 1 + r_close + tick_decimal
+  ok <- is.finite(exponent) & base_0 > 0 & base_1 > 0
+  if (any(ok)) {
+    pu0 <- 1e5 / (base_0[ok]^exponent[ok])
+    pu1 <- 1e5 / (base_1[ok]^exponent[ok])
+    delta <- pu1 - pu0
+  } else {
+    delta <- numeric()
+  }
+  value <- rep(NA_real_, sum(valid))
+  if (length(delta)) {
+    value[ok] <- delta
+  }
+  result[valid] <- value
+  result
 }
 
 .brf_di_resolve_ohlc_columns <- function(x) {
@@ -671,6 +705,11 @@ di_ohlc_to_pu_augmented_xts <- function(x,
   data$PU_low <- .brf_di_pu_from_rate(to_numeric(low_col), valid_days, round_pu)
   data$PU_close <- .brf_di_pu_from_rate(to_numeric(close_col), valid_days, round_pu)
   data$TickSize <- as.numeric(tick_size)
+  data$TickValue <- .brf_di_tick_value_from_close(
+    to_numeric(close_col),
+    valid_days,
+    tick_size
+  )
   data
 }
 
@@ -681,12 +720,14 @@ di_ohlc_to_pu_augmented_xts <- function(x,
   if (!xts::is.xts(x) || !NROW(x)) {
     return(x)
   }
+
   if (!.brf_di_has_bizdays()) {
     warning("Skipping DI PU columns because package 'bizdays' is not installed.", call. = FALSE)
     return(x)
   }
 
   n <- NROW(x)
+
   basis <- as.Date(zoo::index(x))
   pu_cols <- c("PU_open", "PU_high", "PU_low", "PU_close")
 
@@ -735,13 +776,21 @@ di_ohlc_to_pu_augmented_xts <- function(x,
     rates <- as.numeric(x[, col_name])
     .brf_di_pu_from_rate(rates, valid_days, round_pu = TRUE)
   }
+  build_tick_value <- function() {
+    if (!("Close" %in% colnames(x))) {
+      return(NULL)
+    }
+    rates <- as.numeric(x[, "Close"])
+    .brf_di_tick_value_from_close(rates, valid_days, tick_size)
+  }
 
   additions <- list(
     PU_open = build_pu("Open"),
     PU_high = build_pu("High"),
     PU_low = build_pu("Low"),
     PU_close = build_pu("Close"),
-    TickSize = as.numeric(tick_size)
+    TickSize = as.numeric(tick_size),
+    TickValue = build_tick_value()
   )
   keep_add <- vapply(additions, function(col) !is.null(col), logical(1))
   if (!any(keep_add)) {

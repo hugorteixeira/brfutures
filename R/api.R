@@ -510,6 +510,7 @@ get_brfut <- function(ticker,
                       treatment = "ohlcv_drop0_xts",
                       add_attrs = TRUE,
                       rebuild_agg = FALSE,
+                      tz = "America/Sao_Paulo",
                       ...) {
   if (missing(ticker)) {
     stop("Argument `ticker` is required.", call. = FALSE)
@@ -534,8 +535,31 @@ get_brfut <- function(ticker,
   treatment_fn <- .brf_resolve_treatment(treatment)
   finish <- treatment_fn(data, ...)
   estimated <- .brf_estimate_maturity(finish)
-
   if (add_attrs) estimated <- .brf_add_futures_attrs(estimated, ticker)
+
+  # estimated <- if (xts::is.xts(estimated)) {
+  #   xts::xts(zoo::coredata(estimated),
+  #     order.by = lubridate::force_tz(zoo::index(estimated), tz)
+  #   )
+  # } else {
+  #   estimated
+  # }
+
+  estimated <- if (xts::is.xts(estimated)) {
+    new_index <- lubridate::force_tz(zoo::index(estimated), tz)
+
+    attr(estimated, "index") <- as.numeric(new_index)
+    attr(estimated, "tzone") <- tz
+    attr(estimated, ".indexCLASS") <- c("POSIXct", "POSIXt")
+    attr(estimated, ".indexTZ") <- tz
+
+    attr(attr(estimated, "index"), "tclass") <- c("POSIXct", "POSIXt")
+    attr(attr(estimated, "index"), "tzone") <- tz
+
+    estimated
+  } else {
+    estimated
+  }
   return(estimated)
 }
 

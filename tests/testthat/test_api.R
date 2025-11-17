@@ -328,8 +328,9 @@ test_that("DI futures add PU notional columns", {
     stringsAsFactors = FALSE
   )
   augmented <- brfutures:::`.brf_add_futures_di`(di_rates, "DI1F24")
-  expect_true(all(c("PU_open", "PU_high", "PU_low", "PU_close", "TickSize") %in% names(augmented)))
-  expect_true(all(vapply(augmented[c("PU_open", "PU_high", "PU_low", "PU_close", "TickSize")], is.numeric, logical(1))))
+  pu_cols <- c("PU_open", "PU_high", "PU_low", "PU_close", "TickSize", "TickValue")
+  expect_true(all(pu_cols %in% names(augmented)))
+  expect_true(all(vapply(augmented[pu_cols], is.numeric, logical(1))))
 
   cal <- bizdays::create.calendar(
     "test_cal",
@@ -354,6 +355,11 @@ test_that("DI futures add PU notional columns", {
     SIMPLIFY = TRUE
   )
   expect_equal(augmented$TickSize, expected_tick)
+  tick_decimal <- expected_tick / 100
+  r_close <- di_rates$close / 100
+  expected_tick_value <- 1e5 / (1 + r_close + tick_decimal)^(valid_days / 252) -
+    1e5 / (1 + r_close)^(valid_days / 252)
+  expect_equal(augmented$TickValue, expected_tick_value)
 })
 
 test_that("DI xts treatment keeps PU columns", {
@@ -371,7 +377,7 @@ test_that("DI xts treatment keeps PU columns", {
   )
   attr(xts_ohlc, "maturity") <- maturity
   augmented_xts <- brfutures:::`.brf_di_add_pu_xts`(xts_ohlc, "DI1F24")
-  pu_cols <- c("PU_open", "PU_high", "PU_low", "PU_close", "TickSize")
+  pu_cols <- c("PU_open", "PU_high", "PU_low", "PU_close", "TickSize", "TickValue")
   expect_true(all(pu_cols %in% colnames(augmented_xts)))
 
   cal <- bizdays::create.calendar(
@@ -391,6 +397,11 @@ test_that("DI xts treatment keeps PU columns", {
     SIMPLIFY = TRUE
   )
   expect_equal(as.numeric(augmented_xts$TickSize), expected_tick)
+  tick_decimal_xts <- expected_tick / 100
+  close_rates_xts <- c(12.4, 13.05) / 100
+  expected_tick_value_xts <- 1e5 / (1 + close_rates_xts + tick_decimal_xts)^(valid_days / 252) -
+    1e5 / (1 + close_rates_xts)^(valid_days / 252)
+  expect_equal(as.numeric(augmented_xts$TickValue), expected_tick_value_xts)
 })
 
 test_that("get_brfut xts treatments attach DI PU columns", {
@@ -434,7 +445,7 @@ test_that("get_brfut xts treatments attach DI PU columns", {
 
   locf_xts <- get_brfut("DI1F27", treatment = "ohlcv_locf_xts")
   drop0_xts <- get_brfut("DI1F27", treatment = "ohlcv_drop0_xts")
-  pu_cols <- c("PU_open", "PU_high", "PU_low", "PU_close", "TickSize")
+  pu_cols <- c("PU_open", "PU_high", "PU_low", "PU_close", "TickSize", "TickValue")
   expect_true(all(pu_cols %in% colnames(locf_xts)))
   expect_true(all(pu_cols %in% colnames(drop0_xts)))
   expect_true(all(is.finite(as.matrix(locf_xts[, pu_cols]))))
