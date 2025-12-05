@@ -723,7 +723,7 @@
   attr(data, "fut_fees") <- 10
   attr(data, "fut_tick_size") <- 0.01
   attr(data, "fut_multiplier") <- 1
-  attr(data, "subcategoria") <- "Juros"
+  attr(data, "subcategoria") <- "Juros Brasil"
   attr_slippage <- attr(data, "fut_slippage")
   attr_fees <- attr(data, "fut_fees")
   FinancialInstrument::currency("USD")

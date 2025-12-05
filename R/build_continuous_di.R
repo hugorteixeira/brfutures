@@ -604,6 +604,9 @@ build_continuous_di <- function(data,
   per_ticker <- split(df, df$ticker)
   roll_schedule <- .brf_di_roll_schedule(selected, per_ticker)
   series <- .brf_di_selected_to_xts(selected, target_days, include_pnl, per_ticker, roll_schedule)
+  cal_use <- .brf_di_resolve_calendar(cal)
+  last_basis <- max(selected$date, na.rm = TRUE)
+  est_maturity <- bizdays::add.bizdays(last_basis, target_days - 1L, cal_use)
   attr(series, "continuous_spec") <- list(
     method = "di_constant_tenor",
     root = prepared$root,
@@ -617,11 +620,12 @@ build_continuous_di <- function(data,
     date = selected$date,
     root = selected$root,
     ticker = selected$ticker,
-    maturity = selected$maturity,
+    actual_maturity = selected$maturity,
     valid_days = selected$valid_days,
     month_code = selected$month_code,
     stringsAsFactors = FALSE
   )
+  attr(series, "maturity") <- est_maturity
   if (nrow(roll_schedule)) {
     roll_export <- roll_schedule
     roll_export$switch_position <- NULL
@@ -629,5 +633,16 @@ build_continuous_di <- function(data,
   } else {
     attr(series, "roll_schedule") <- roll_schedule
   }
+  # attr(series, "renda") <- "Trading"
+  #  attr(series, "categoria") <- "Futuro"
+  # attr(series, "subcategoria") <- "Juros Brasil"
+  #  attr(series, "risk_parity") <- "Azul"
+  #  attr(series, "fut_fees") <- 10
+  #  attr(series, "fut_slippage") <- 0.01
+  #  attr(series, "fut_multiplier") <- \1
+  # attr(series, "fonte") <- "Obter_b3_fut_cont"
+  print(root)
+  series <- .brf_add_futures_attrs(series, root)
+
   series
 }
