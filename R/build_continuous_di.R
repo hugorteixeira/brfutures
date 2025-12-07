@@ -604,6 +604,15 @@ build_continuous_di <- function(data,
   per_ticker <- split(df, df$ticker)
   roll_schedule <- .brf_di_roll_schedule(selected, per_ticker)
   series <- .brf_di_selected_to_xts(selected, target_days, include_pnl, per_ticker, roll_schedule)
+  # Force POSIXct index in America/Sao_Paulo to mirror build_continuous
+  tz_out <- "America/Sao_Paulo"
+  new_index <- lubridate::force_tz(zoo::index(series), tz_out)
+  attr(series, "index") <- as.numeric(new_index)
+  attr(series, "tzone") <- tz_out
+  attr(series, ".indexCLASS") <- c("POSIXct", "POSIXt")
+  attr(series, ".indexTZ") <- tz_out
+  attr(attr(series, "index"), "tclass") <- c("POSIXct", "POSIXt")
+  attr(attr(series, "index"), "tzone") <- tz_out
   cal_use <- .brf_di_resolve_calendar(cal)
   last_basis <- max(selected$date, na.rm = TRUE)
   est_maturity <- bizdays::add.bizdays(last_basis, target_days - 1L, cal_use)

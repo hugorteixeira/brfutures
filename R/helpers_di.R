@@ -499,6 +499,10 @@ ohlc_rates_to_pu_xts <- function(x,
   r_close <- as.numeric(x[, cols$close])
 
   idx_dates <- zoo::index(x)
+  tz_val <- attr(x, "tzone")
+  if (!is.null(tz_val) && !inherits(idx_dates, "POSIXt")) {
+    idx_dates <- as.POSIXct(idx_dates, tz = tz_val)
+  }
 
   if (inherits(maturity_date, "Date")) {
     md <- as.Date(maturity_date)
@@ -533,7 +537,7 @@ ohlc_rates_to_pu_xts <- function(x,
       PU_c = as.numeric(PU_c)
     ),
     order.by = idx_dates,
-    tzone = attr(x, "tzone")
+    tzone = tz_val
   )
 }
 
@@ -573,6 +577,10 @@ di_ohlc_to_pu_augmented_xts <- function(x,
   r_close <- as.numeric(x[, cols$close])
 
   idx_dates <- zoo::index(x)
+  tz_val <- attr(x, "tzone")
+  if (!is.null(tz_val) && !inherits(idx_dates, "POSIXt")) {
+    idx_dates <- as.POSIXct(idx_dates, tz = tz_val)
+  }
 
   if (inherits(maturity_date, "Date")) {
     md <- as.Date(maturity_date)
@@ -661,7 +669,7 @@ di_ohlc_to_pu_augmented_xts <- function(x,
   xts::xts(
     res_mat,
     order.by = idx_dates,
-    tzone = attr(x, "tzone")
+    tzone = tz_val
   )
 }
 
@@ -728,7 +736,11 @@ di_ohlc_to_pu_augmented_xts <- function(x,
 
   n <- NROW(x)
 
-  basis <- as.Date(zoo::index(x))
+  basis <- zoo::index(x)
+  tz_val <- attr(x, "tzone")
+  if (!inherits(basis, "POSIXt")) {
+    basis <- as.POSIXct(basis, tz = if (!is.null(tz_val)) tz_val else "UTC")
+  }
   pu_cols <- c("PU_open", "PU_high", "PU_low", "PU_close")
 
   maturity_vec <- maturity_date
@@ -797,7 +809,7 @@ di_ohlc_to_pu_augmented_xts <- function(x,
     return(x)
   }
   add_matrix <- do.call(cbind, additions[keep_add])
-  pu_xts <- xts::xts(add_matrix, order.by = basis, tzone = attr(x, "tzone"))
+  pu_xts <- xts::xts(add_matrix, order.by = basis, tzone = tz_val)
 
   if (any(colnames(pu_xts) %in% colnames(x))) {
     x <- x[, setdiff(colnames(x), colnames(pu_xts)), drop = FALSE]
