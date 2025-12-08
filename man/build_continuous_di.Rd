@@ -11,7 +11,7 @@ build_continuous_di(
   root = "DI1",
   allowed_maturities = "all",
   cal = NULL,
-  include_pnl = TRUE
+  include_pnl = FALSE
 )
 }
 \arguments{

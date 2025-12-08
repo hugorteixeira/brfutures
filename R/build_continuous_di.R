@@ -29,7 +29,7 @@ build_continuous_di <- function(data,
                                 root = "DI1",
                                 allowed_maturities = "all",
                                 cal = NULL,
-                                include_pnl = TRUE) {
+                                include_pnl = FALSE) {
   .brf_di_require_bizdays()
   tenor_unit <- match.arg(tenor_unit)
   if (length(target_tenor) > 1L) {
