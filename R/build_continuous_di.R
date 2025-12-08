@@ -650,8 +650,8 @@ build_continuous_di <- function(data,
   #  attr(series, "fut_slippage") <- 0.01
   #  attr(series, "fut_multiplier") <- \1
   # attr(series, "fonte") <- "Obter_b3_fut_cont"
-  print(root)
+  root <- paste0("DI1FUT_1D_", target_tenor, substr(toupper(tenor_unit), 1, 1), "BR_B")
   series <- .brf_add_futures_attrs(series, root)
-
-  series
+  assign(root, series, envir = .GlobalEnv)
+  return(series)
 }

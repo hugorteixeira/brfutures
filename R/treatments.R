@@ -593,6 +593,7 @@
 }
 
 .brf_add_futures_attrs <- function(data, ticker) {
+  print(ticker)
   if (is.null(data)) {
     return(data)
   }
@@ -714,6 +715,10 @@
   return(data)
 }
 .brf_add_futures_di <- function(data, ticker) {
+  print("aqui data cgegabdi")
+  print("aqui ticker chegando")
+  print(ticker)
+  print(head(data))
   if (xts::is.xts(data)) {
     data <- .brf_di_add_pu_xts(data, ticker)
   } else if (is.data.frame(data)) {

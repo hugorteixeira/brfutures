@@ -216,7 +216,9 @@ build_forward_adjusted <- function(data,
     stringsAsFactors = FALSE
   )
   attr(series, "roll_schedule") <- roll_export
+  root <- paste0(root, "FUT_1D_", days_before_roll, "DBR_", toupper(substr(mode, 1, 1)))
   series <- .brf_add_futures_attrs(series, root)
+  assign(root, series, envir = .GlobalEnv)
   return(series)
 }
 
