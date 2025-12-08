@@ -632,7 +632,6 @@
 
   attr_slippage <- attr(data, "fut_slippage")
   attr_fees <- attr(data, "fut_fees")
-  print(str(data))
   FinancialInstrument::currency("USD")
   FinancialInstrument::future(ticker,
     currency = "USD",
@@ -650,7 +649,6 @@
 
   attr_slippage <- attr(data, "fut_slippage")
   attr_fees <- attr(data, "fut_fees")
-  print(str(data))
   FinancialInstrument::currency("USD")
   FinancialInstrument::future(ticker,
     currency = "USD",
@@ -668,7 +666,6 @@
 
   attr_slippage <- attr(data, "fut_slippage")
   attr_fees <- attr(data, "fut_fees")
-  print(str(data))
   FinancialInstrument::currency("USD")
   FinancialInstrument::future(ticker,
     currency = "USD",
@@ -686,7 +683,6 @@
 
   attr_slippage <- attr(data, "fut_slippage")
   attr_fees <- attr(data, "fut_fees")
-  print(str(data))
   FinancialInstrument::currency("USD")
   FinancialInstrument::future(ticker,
     currency = "USD",
@@ -694,6 +690,8 @@
     identifiers = list(slippage = attr_slippage, fees = attr_fees),
     overwrite = TRUE
   )
+  cat("\nCall bt_eldoc() or bt_batch() using this ticker: ", ticker, ".\n")
+
   return(data)
 }
 .brf_add_futures_dol <- function(data, ticker) {
@@ -704,7 +702,6 @@
 
   attr_slippage <- attr(data, "fut_slippage")
   attr_fees <- attr(data, "fut_fees")
-  print(str(data))
   FinancialInstrument::currency("USD")
   FinancialInstrument::future(ticker,
     currency = "USD",
@@ -712,13 +709,11 @@
     identifiers = list(slippage = attr_slippage, fees = attr_fees),
     overwrite = TRUE
   )
+  cat("\nCall bt_eldoc() or bt_batch() using this ticker: ", ticker, ".\n")
+
   return(data)
 }
 .brf_add_futures_di <- function(data, ticker) {
-  print("aqui data cgegabdi")
-  print("aqui ticker chegando")
-  print(ticker)
-  print(head(data))
   if (xts::is.xts(data)) {
     data <- .brf_di_add_pu_xts(data, ticker)
   } else if (is.data.frame(data)) {
@@ -729,6 +724,7 @@
   attr(data, "fut_tick_size") <- 0.01
   attr(data, "fut_multiplier") <- 1
   attr(data, "subcategoria") <- "Juros Brasil"
+  attr(data, "ticker_name") <- ticker
   attr_slippage <- attr(data, "fut_slippage")
   attr_fees <- attr(data, "fut_fees")
   FinancialInstrument::currency("USD")
@@ -738,6 +734,7 @@
     identifiers = list(slippage = attr_slippage, fees = attr_fees),
     overwrite = TRUE
   )
+  cat("\nCall bt_eldoc() or bt_batch() using this ticker: ", ticker, ".\n")
   return(data)
 }
 .brf_add_futures_icf <- function(data, ticker) {
@@ -756,6 +753,7 @@
     identifiers = list(slippage = attr_slippage, fees = attr_fees),
     overwrite = TRUE
   )
+  cat("\nCall bt_eldoc() or bt_batch() using this ticker: ", ticker, ".\n")
   return(data)
 }
 .brf_add_futures_ccm <- function(data, ticker) {
@@ -766,7 +764,6 @@
 
   attr_slippage <- attr(data, "fut_slippage")
   attr_fees <- attr(data, "fut_fees")
-  print(str(data))
   FinancialInstrument::currency("USD")
   FinancialInstrument::future(ticker,
     currency = "USD",
@@ -774,6 +771,8 @@
     identifiers = list(slippage = attr_slippage, fees = attr_fees),
     overwrite = TRUE
   )
+  cat("\nCall bt_eldoc() or bt_batch() using this ticker: ", ticker, ".\n")
+
   return(data)
 }
 .brf_add_futures_bgi <- function(data, ticker) {
@@ -784,7 +783,6 @@
 
   attr_slippage <- attr(data, "fut_slippage")
   attr_fees <- attr(data, "fut_fees")
-  print(str(data))
   FinancialInstrument::currency("USD")
   FinancialInstrument::future(ticker,
     currency = "USD",
@@ -792,6 +790,8 @@
     identifiers = list(slippage = attr_slippage, fees = attr_fees),
     overwrite = TRUE
   )
+  cat("\nCall bt_eldoc() or bt_batch() using this ticker: ", ticker, ".\n")
+
   return(data)
 }
 .brf_add_futures_generic <- function(data, ticker) {
@@ -802,7 +802,6 @@
 
   attr_slippage <- attr(data, "fut_slippage")
   attr_fees <- attr(data, "fut_fees")
-  print(str(data))
   FinancialInstrument::currency("USD")
   FinancialInstrument::future(ticker,
     currency = "USD",
@@ -810,5 +809,7 @@
     identifiers = list(slippage = attr_slippage, fees = attr_fees),
     overwrite = TRUE
   )
+  cat("\nCall bt_eldoc() or bt_batch() using this ticker: ", ticker, ".\n")
+
   return(data)
 }
