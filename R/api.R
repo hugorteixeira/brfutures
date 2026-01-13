@@ -657,7 +657,6 @@ update_brfut_agg <- function(root = NULL,
 #'   necessary.
 #' @param tz Timezone used when returning `xts` objects. Defaults to
 #'   `"America/Sao_Paulo"`.
-#' @param timezone Optional alias for `tz`. When provided it overrides `tz`.
 #' @param keep_time When `TRUE` (default), keep the clock time when assigning the
 #'   timezone (e.g. midnight stays midnight). When `FALSE`, shift timestamps to
 #'   the target timezone.
@@ -672,14 +671,10 @@ get_brfut <- function(ticker,
                       add_attrs = TRUE,
                       rebuild_agg = FALSE,
                       tz = "America/Sao_Paulo",
-                      timezone = NULL,
                       keep_time = TRUE,
                       ...) {
   if (missing(ticker)) {
     stop("Argument `ticker` is required.", call. = FALSE)
-  }
-  if (!is.null(timezone)) {
-    tz <- timezone
   }
   ticker_text <- toupper(trimws(as.character(ticker)))
   if (isTRUE(rebuild_agg) || !file.exists(.brf_aggregate_path(create = FALSE))) {

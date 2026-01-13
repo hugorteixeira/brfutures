@@ -12,7 +12,6 @@ get_brfut(
   add_attrs = TRUE,
   rebuild_agg = FALSE,
   tz = "America/Sao_Paulo",
-  timezone = NULL,
   keep_time = TRUE,
   ...
 )
@@ -32,8 +31,6 @@ necessary.}
 
 \item{tz}{Timezone used when returning `xts` objects. Defaults to
 `"America/Sao_Paulo"`.}
-
-\item{timezone}{Optional alias for `tz`. When provided it overrides `tz`.}
 
 \item{keep_time}{When `TRUE` (default), keep the clock time when assigning the
 timezone (e.g. midnight stays midnight). When `FALSE`, shift timestamps to

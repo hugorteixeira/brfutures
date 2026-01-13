@@ -474,6 +474,14 @@ test_that("DI xts treatment keeps PU columns", {
   expect_equal(as.numeric(augmented_xts$TickValue), expected_tick_value_xts)
 })
 
+test_that("xts timezone helper keeps local midnight", {
+  x <- xts::xts(1, order.by = as.Date("2025-01-01"))
+  y <- brfutures:::`.brf_xts_apply_timezone`(x, tz = "America/Sao_Paulo", keep_time = TRUE)
+  idx <- zoo::index(y)
+  expect_true(inherits(idx, "POSIXt"))
+  expect_equal(format(idx, "%Y-%m-%d %H:%M:%S", tz = "America/Sao_Paulo"), "2025-01-01 00:00:00")
+})
+
 test_that("get_brfut xts treatments attach DI PU columns", {
   skip_if_not_installed("bizdays")
   cache <- tempfile("brf-cache-di-")
