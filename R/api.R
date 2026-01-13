@@ -655,6 +655,12 @@ update_brfut_agg <- function(root = NULL,
 #' @param rebuild_agg Set to `TRUE` to rebuild aggregates before retrieving
 #'   data. The relevant root caches are rebuilt from the raw HTML/XML files when
 #'   necessary.
+#' @param tz Timezone used when returning `xts` objects. Defaults to
+#'   `"America/Sao_Paulo"`.
+#' @param timezone Optional alias for `tz`. When provided it overrides `tz`.
+#' @param keep_time When `TRUE` (default), keep the clock time when assigning the
+#'   timezone (e.g. midnight stays midnight). When `FALSE`, shift timestamps to
+#'   the target timezone.
 #' @param ... Additional arguments forwarded to the treatment function.
 #'
 #' @return The result of applying `treatment` to the filtered bulletin rows.
@@ -666,9 +672,14 @@ get_brfut <- function(ticker,
                       add_attrs = TRUE,
                       rebuild_agg = FALSE,
                       tz = "America/Sao_Paulo",
+                      timezone = NULL,
+                      keep_time = TRUE,
                       ...) {
   if (missing(ticker)) {
     stop("Argument `ticker` is required.", call. = FALSE)
+  }
+  if (!is.null(timezone)) {
+    tz <- timezone
   }
   ticker_text <- toupper(trimws(as.character(ticker)))
   if (isTRUE(rebuild_agg) || !file.exists(.brf_aggregate_path(create = FALSE))) {
@@ -700,20 +711,8 @@ get_brfut <- function(ticker,
   #   estimated
   # }
 
-  estimated <- if (xts::is.xts(estimated)) {
-    new_index <- lubridate::force_tz(zoo::index(estimated), tz)
-
-    attr(estimated, "index") <- as.numeric(new_index)
-    attr(estimated, "tzone") <- tz
-    attr(estimated, ".indexCLASS") <- c("POSIXct", "POSIXt")
-    attr(estimated, ".indexTZ") <- tz
-
-    attr(attr(estimated, "index"), "tclass") <- c("POSIXct", "POSIXt")
-    attr(attr(estimated, "index"), "tzone") <- tz
-
-    estimated
-  } else {
-    estimated
+  if (xts::is.xts(estimated)) {
+    estimated <- .brf_xts_apply_timezone(estimated, tz = tz, keep_time = keep_time)
   }
   return(estimated)
 }

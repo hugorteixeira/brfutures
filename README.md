@@ -75,6 +75,9 @@ update_brfut(
 # Get data for individual contract(s)
 get_brfut("WINM24")
 
+# Return xts indexed at local midnight (default tz = America/Sao_Paulo)
+get_brfut("WINM24", keep_time = TRUE)
+
 # Get aggregate data for all cached roots between dates
 # (defaults to the `clean_data` treatment, which normalizes columns)
 get_brfut_agg(start = "2024-03-01", end = "2024-04-01")

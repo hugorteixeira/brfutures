@@ -39,11 +39,11 @@ directory.
 Dates before the XML cutover (defaults to 2025-12-16) use the legacy HTML
 bulletin endpoint. Dates on/after the cutover download BVBG XML reports from
 the B3 pesquisapregao SPRD ZIP endpoint. Override the cutover date with
-\code{options(brfutures.xml_cutover_date = "YYYY-MM-DD")} (or
-\code{brfutures.bdi_cutover_date} for backwards compatibility). If the ZIP
+`options(brfutures.xml_cutover_date = "YYYY-MM-DD")` (or
+`brfutures.bdi_cutover_date` for backwards compatibility). If the ZIP
 endpoint blocks non-browser clients, set a browser-like user-agent via
-\code{options(brfutures.bvbg_user_agent = "...")}. You can also point to a local
-XML file or directory with \code{options(brfutures.bvbg_xml_path = "...")}.
+`options(brfutures.bvbg_user_agent = "...")`. You can also point to a local
+XML file or directory with `options(brfutures.bvbg_xml_path = "...")`.
 }
 \examples{
 \dontrun{
