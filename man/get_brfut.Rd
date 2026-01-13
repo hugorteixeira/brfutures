@@ -12,6 +12,8 @@ get_brfut(
   add_attrs = TRUE,
   rebuild_agg = FALSE,
   tz = "America/Sao_Paulo",
+  timezone = NULL,
+  keep_time = TRUE,
   ...
 )
 }
@@ -28,11 +30,21 @@ and returns the desired shape.}
 data. The relevant root caches are rebuilt from the raw HTML/XML files when
 necessary.}
 
+\item{tz}{Timezone used when returning `xts` objects. Defaults to
+`"America/Sao_Paulo"`.}
+
+\item{timezone}{Optional alias for `tz`. When provided it overrides `tz`.}
+
+\item{keep_time}{When `TRUE` (default), keep the clock time when assigning the
+timezone (e.g. midnight stays midnight). When `FALSE`, shift timestamps to
+the target timezone.}
+
 \item{...}{Additional arguments forwarded to the treatment function.}
 }
 \value{
 The result of applying `treatment` to the filtered bulletin rows.
 }
 \description{
-Retrieve cached B3 futures data
+Returns data combined from HTML and BVBG XML sources; the `source` column
+indicates the origin (`html` or `xml`) before treatments are applied.
 }

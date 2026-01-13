@@ -84,6 +84,41 @@
   if (date >= .brf_xml_cutover_date()) "xml" else "html"
 }
 
+.brf_xts_apply_timezone <- function(x, tz, keep_time = TRUE) {
+  if (!xts::is.xts(x)) {
+    return(x)
+  }
+  if (is.null(tz) || is.na(tz) || !nzchar(tz)) {
+    return(x)
+  }
+  if (is.null(keep_time)) {
+    keep_time <- TRUE
+  }
+  keep_time <- isTRUE(keep_time)
+  idx <- zoo::index(x)
+  if (inherits(idx, "POSIXt")) {
+    idx <- if (keep_time) {
+      lubridate::force_tz(idx, tzone = tz)
+    } else {
+      lubridate::with_tz(idx, tzone = tz)
+    }
+  } else {
+    if (keep_time) {
+      idx <- lubridate::force_tz(idx, tzone = tz)
+    } else {
+      idx <- as.POSIXct(idx, tz = "UTC")
+      idx <- lubridate::with_tz(idx, tzone = tz)
+    }
+  }
+  attr(x, "index") <- as.numeric(idx)
+  attr(x, "tzone") <- tz
+  attr(x, ".indexCLASS") <- c("POSIXct", "POSIXt")
+  attr(x, ".indexTZ") <- tz
+  attr(attr(x, "index"), "tclass") <- c("POSIXct", "POSIXt")
+  attr(attr(x, "index"), "tzone") <- tz
+  x
+}
+
 .brf_is_xml_path <- function(path) {
   is.character(path) && length(path) == 1L && grepl("\\.xml$", path, ignore.case = TRUE)
 }

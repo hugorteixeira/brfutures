@@ -4,6 +4,16 @@
 #' stores both the raw files and tidy daily observations in the configured cache
 #' directory.
 #'
+#' @details
+#' Dates before the XML cutover (defaults to 2025-12-16) use the legacy HTML
+#' bulletin endpoint. Dates on/after the cutover download BVBG XML reports from
+#' the B3 pesquisapregao SPRD ZIP endpoint. Override the cutover date with
+#' `options(brfutures.xml_cutover_date = "YYYY-MM-DD")` (or
+#' `brfutures.bdi_cutover_date` for backwards compatibility). If the ZIP
+#' endpoint blocks non-browser clients, set a browser-like user-agent via
+#' `options(brfutures.bvbg_user_agent = "...")`. You can also point to a local
+#' XML file or directory with `options(brfutures.bvbg_xml_path = "...")`.
+#'
 #' @param root Optional character vector with commodity roots (e.g. `"WIN"`).
 #'   When omitted the function updates every root already present inside the
 #'   cache directory.
@@ -559,6 +569,9 @@ update_brfut <- function(root = NULL,
 
 #' Rebuild cached root and aggregate data
 #'
+#' Rebuilds per-root caches by re-parsing cached HTML bulletins and BVBG XML
+#' data (including yearly BVBG caches) before refreshing the aggregate store.
+#'
 #' @param root Optional character vector with roots to target. When omitted
 #'   and `rebuild_roots` is `TRUE`, every cached root is rebuilt from the raw
 #'   HTML/XML files.
@@ -630,6 +643,9 @@ update_brfut_agg <- function(root = NULL,
 }
 
 #' Retrieve cached B3 futures data
+#'
+#' Returns data combined from HTML and BVBG XML sources; the `source` column
+#' indicates the origin (`html` or `xml`) before treatments are applied.
 #'
 #' @param ticker Character vector with specific contract tickers (e.g. `"WINZ24"`).
 #' @param start,end Optional bounds restricting the returned dates.
@@ -703,6 +719,9 @@ get_brfut <- function(ticker,
 }
 
 #' Load all cached bulletins within a date range
+#'
+#' Returns cached rows merged from HTML and BVBG XML sources; the `source`
+#' column indicates the origin (`html` or `xml`) before treatments are applied.
 #'
 #' @param start,end Date bounds. When omitted all cached rows are returned.
 #' @param root Optional character vector restricting the returned roots. When

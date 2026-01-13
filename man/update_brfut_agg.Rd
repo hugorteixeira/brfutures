@@ -26,5 +26,6 @@ Invisibly returns a list with rebuilt root data frames (if any) and
   the refreshed aggregate data frame when requested.
 }
 \description{
-Rebuild cached root and aggregate data
+Rebuilds per-root caches by re-parsing cached HTML bulletins and BVBG XML
+data (including yearly BVBG caches) before refreshing the aggregate store.
 }

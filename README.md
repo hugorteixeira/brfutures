@@ -21,10 +21,11 @@
 
 ## 🌟 Overview
 
-**brfutures** is a lightweight R package that provides efficient helpers to keep a local cache of B3 (BM&F) futures bulletins. The package uses only the public HTML endpoint and includes several smart features:
+**brfutures** is a lightweight R package that provides efficient helpers to keep a local cache of B3 (BM&F) futures bulletins. The package supports the legacy HTML endpoint and the newer BVBG XML reports (downloaded via the pesquisapregao SPRD ZIP endpoint), switching automatically at a configurable cutover date (defaults to 2025-12-16).
 
 - ⚡ **Fast updates**: Parse bulletins as soon as they're downloaded
-- 🗂️ **Smart caching**: Skip "no data" pages immediately  
+- 🔄 **Dual source support**: HTML before the cutover, BVBG XML after it
+- 🗂️ **Smart caching**: Skip "no data" HTML/XML/ZIP days immediately
 - 🔄 **Incremental merge**: Add fresh data to cached RDS files incrementally
 - 🚀 **Performance**: Keep large refreshes fast with efficient data handling
 
@@ -63,6 +64,10 @@ update_brfut(
   start = as.Date("2024-01-01"),
   end = Sys.Date()
 )
+
+# Dates before 2025-12-16 use HTML; on/after use BVBG XML.
+# Override the cutover date if needed:
+# options(brfutures.xml_cutover_date = "2025-12-16")
 ```
 
 ### 3. Retrieve your cached data 📊
@@ -76,6 +81,15 @@ get_brfut_agg(start = "2024-03-01", end = "2024-04-01")
 
 # Drop rows where OHLC/volume fields are zero or missing
 get_brfut_agg(treatment = "clean_data_drop0")
+```
+
+### Optional BVBG XML settings
+```r
+# Use a browser-like user-agent if the SPRD ZIP endpoint blocks other clients
+options(brfutures.bvbg_user_agent = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+
+# Point to a local XML file or directory to avoid downloads
+options(brfutures.bvbg_xml_path = "~/Downloads")
 ```
 
 ### 4. Build continuous futures series 📈
@@ -116,15 +130,16 @@ graph TD
     A[Futures Data Request] --> B[Check Local Cache]
     B --> C{Data Available?}
     C -->|Yes| D[Retrieve from Cache]
-    C -->|No| E[Download HTML Bulletin]
-    E --> F[Parse Bulletin]
-    F --> G[Cache Parsed Data]
-    G --> D
-    D --> H[Return Processed Data]
+    C -->|No| E[Download HTML Bulletin or SPRD ZIP]
+    E --> F[Extract XML if needed]
+    F --> G[Parse Bulletin]
+    G --> H[Cache Parsed Data]
+    H --> D
+    D --> I[Return Processed Data]
     
     style A fill:#FF0000
     style D fill:#00FF00
-    style H fill:#0000FF
+    style I fill:#0000FF
 ```
 
 ---
@@ -136,8 +151,18 @@ The package organizes your data efficiently:
 ```
 <cache_dir>/
 ├── 📂 WIN/
-│   ├── 📄 raw/                # Downloaded HTML bulletins (no-data files removed)
+│   ├── 📄 raw/                # Downloaded HTML bulletins
+│   ├── 📊 parsed/             # Parsed HTML per day (RDS)
 │   └── 📊 WIN.rds             # Parsed rows for the root, updated incrementally
+├── 📂 BDI/
+│   └── 📂 BVBG/
+│       └── 📂 2026/
+│           ├── 📄 2026-01-08-raw.xml
+│           ├── 📊 2026-01-08-parsed.rds
+│           └── 📊 2026.rds
+├── 📄 no-data-html.csv
+├── 📄 no-data-xml.csv
+├── 📄 no-data-zip.csv
 └── 📊 aggregate.rds           # Quick access to every cached row
 ```
 
@@ -151,6 +176,7 @@ The package organizes your data efficiently:
 ## 📥 Data Retrieval
 
 - `get_brfut()` and `get_brfut_agg()` always read from the aggregate RDS file
+- ✅ The `source` column marks whether each row came from HTML (`html`) or BVBG XML (`xml`)
 - 💾 Keep the original bulletin columns for full data fidelity
 - 🛠️ `get_brfut()` lets you transform the data on the fly via the `treatment` argument:
   - Raw data frames
@@ -163,7 +189,7 @@ If you need to rebuild the aggregate separately after a huge update, use `update
 
 ## 🧪 Testing
 
-The package includes a comprehensive test suite based on synthetic HTML fixtures:
+The package includes a comprehensive test suite based on synthetic HTML and BVBG XML fixtures:
 
 ```r
 # Load the package and run tests

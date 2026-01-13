@@ -33,5 +33,7 @@ latest root files before loading. Defaults to `FALSE`.}
 A data frame with every cached contract observation within the range.
 }
 \description{
-Load all cached bulletins within a date range
+Load all cached bulletins within a date range, merged from HTML and BVBG XML
+sources. The \code{source} column indicates the origin (\code{html} or
+\code{xml}) before treatments are applied.
 }
