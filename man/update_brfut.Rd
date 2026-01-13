@@ -31,9 +31,9 @@ later.}
 Invisibly returns the merged aggregate data frame after the update.
 }
 \description{
-Downloads HTML bulletins for the requested commodity roots, parses them,
-and stores both the raw files and tidy daily observations in the configured
-cache directory.
+Downloads HTML bulletins (legacy) or BVBG XML reports, parses them, and
+stores both the raw files and tidy daily observations in the configured cache
+directory.
 }
 \examples{
 \dontrun{

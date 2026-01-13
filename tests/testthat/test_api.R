@@ -156,6 +156,76 @@ test_that("DI futures headers retain settlement and bids", {
   expect_equal(cleaned$last_ask, 0.123)
 })
 
+test_that("DI ajuste columns map to settlement and corrected separately", {
+  raw <- data.frame(
+    contract_code = "DI1F26",
+    AJUSTE = "98.765,43",
+    `AJUSTE ANTER. (3)` = "98.700,00",
+    `AJUSTE CORRIG. (4)` = "98.800,00",
+    stringsAsFactors = FALSE,
+    check.names = FALSE
+  )
+  cleaned <- brfutures:::`.brf_clean_parsed_dataframe`(raw, root = "DI1", source_path = "DI1_2025-11-10.html")
+  expect_equal(cleaned$settlement_price, 98765.43)
+  expect_equal(cleaned$previous_settlement, 98700)
+  expect_equal(cleaned$corrected_settlement, 98800)
+  expect_false("settlement_price.1" %in% names(cleaned))
+  header_map <- attr(cleaned, "brf_raw_header_map")
+  expect_equal(header_map[["settlement_price"]], "AJUSTE")
+  expect_equal(header_map[["previous_settlement"]], "AJUSTE ANTER. (3)")
+  expect_equal(header_map[["corrected_settlement"]], "AJUSTE CORRIG. (4)")
+})
+
+test_that("BVBG XML parser maps fields and filters futures", {
+  xml <- c(
+    "<?xml version=\"1.0\" encoding=\"utf-8\"?>",
+    "<Document xmlns=\"urn:bvmf.052.01.xsd\">",
+    "  <BizGrp>",
+    "    <Document xmlns=\"urn:bvmf.217.01.xsd\">",
+    "      <PricRpt>",
+    "        <TradDt><Dt>2026-01-08</Dt></TradDt>",
+    "        <SctyId><TckrSymb>ICFH26</TckrSymb></SctyId>",
+    "        <FinInstrmAttrbts>",
+    "          <OpnIntrst>14506</OpnIntrst>",
+    "          <FrstPric Ccy=\"BRL\">68.94</FrstPric>",
+    "          <MinPric Ccy=\"BRL\">68.75</MinPric>",
+    "          <MaxPric Ccy=\"BRL\">69.04</MaxPric>",
+    "          <TradAvrgPric Ccy=\"BRL\">68.87</TradAvrgPric>",
+    "          <LastPric Ccy=\"BRL\">68.82</LastPric>",
+    "          <RglrTxsQty>672</RglrTxsQty>",
+    "          <AdjstdQt Ccy=\"BRL\">68.79</AdjstdQt>",
+    "          <PrvsAdjstdQt Ccy=\"BRL\">68.99</PrvsAdjstdQt>",
+    "        </FinInstrmAttrbts>",
+    "      </PricRpt>",
+    "      <PricRpt>",
+    "        <TradDt><Dt>2026-01-08</Dt></TradDt>",
+    "        <SctyId><TckrSymb>ICFH26P007050</TckrSymb></SctyId>",
+    "        <FinInstrmAttrbts>",
+    "          <OpnIntrst>10</OpnIntrst>",
+    "        </FinInstrmAttrbts>",
+    "      </PricRpt>",
+    "    </Document>",
+    "  </BizGrp>",
+    "</Document>"
+  )
+  path <- tempfile(fileext = ".xml")
+  writeLines(xml, path, useBytes = TRUE)
+  parsed <- brfutures:::`.brf_parse_bvbg_xml_for_root`(path, "ICF")
+  expect_s3_class(parsed, "data.frame")
+  expect_equal(nrow(parsed), 1)
+  expect_equal(parsed$contract_code, "ICFH26")
+  expect_equal(parsed$open_interest, 14506)
+  expect_equal(parsed$open, 68.94)
+  expect_equal(parsed$low, 68.75)
+  expect_equal(parsed$high, 69.04)
+  expect_equal(parsed$average_price, 68.87)
+  expect_equal(parsed$close, 68.82)
+  expect_equal(parsed$trade_count, 672)
+  expect_equal(parsed$settlement_price, 68.79)
+  expect_equal(parsed$previous_settlement, 68.99)
+  expect_equal(parsed$source, "xml")
+})
+
 test_that("standard treatment renames truncated bulletin columns", {
   raw_di <- data.frame(
     date = as.Date("2015-01-06"),
@@ -550,7 +620,7 @@ test_that("update_brfut skips non-business days", {
   expect_equal(unique(saved$date), as.Date(c("2025-01-03", "2025-01-06")))
 })
 
-test_that("update_brfut skips dates listed in no-data.csv", {
+test_that("update_brfut skips dates listed in no-data-html.csv", {
   cache <- tempfile("brf-cache-")
   dir.create(cache, recursive = TRUE, showWarnings = FALSE)
   old_opt <- getOption("brfutures.cache_dir")
@@ -565,7 +635,7 @@ test_that("update_brfut skips dates listed in no-data.csv", {
   writeLines("<html></html>", skip_path)
   utils::write.csv(
     data.frame(filename = "SKP_2025-01-06.html", stringsAsFactors = FALSE),
-    file = file.path(cache, "no-data.csv"),
+    file = file.path(cache, "no-data-html.csv"),
     row.names = FALSE,
     quote = TRUE
   )
@@ -646,7 +716,7 @@ test_that("update_brfut records downloaded reports with no data message", {
   brfutures:::`.brf_update_root`("SKP", as.Date("2025-01-03"), as.Date("2025-01-07"), quiet = FALSE)
   expect_true("2025-01-06" %in% download_log)
   expect_false(file.exists(file.path(raw_dir, "SKP_2025-01-06.html")))
-  no_data_file <- file.path(cache, "no-data.csv")
+  no_data_file <- file.path(cache, "no-data-html.csv")
   expect_true(file.exists(no_data_file))
   entries <- utils::read.csv(no_data_file, stringsAsFactors = FALSE)
   expect_true("SKP_2025-01-06.html" %in% entries$filename)
@@ -700,7 +770,7 @@ test_that("update_brfut treats missing combo option as no data", {
   update_brfut("CCM", start = as.Date("2000-01-28"), end = as.Date("2000-01-28"), quiet = TRUE)
   expect_equal(download_log, "2000-01-28")
   expect_false(file.exists(file.path(raw_dir, "CCM_2000-01-28.html")))
-  no_data_file <- file.path(cache, "no-data.csv")
+  no_data_file <- file.path(cache, "no-data-html.csv")
   expect_true(file.exists(no_data_file))
   entries <- utils::read.csv(no_data_file, stringsAsFactors = FALSE)
   expect_true("CCM_2000-01-28.html" %in% entries$filename)

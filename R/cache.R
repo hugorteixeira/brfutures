@@ -32,6 +32,14 @@
   dir
 }
 
+.brf_raw_path <- function(root, date, source = c("html")) {
+  source <- match.arg(source)
+  root <- .brf_normalize_root(root)
+  date <- .brf_normalize_date(date)
+  ext <- "html"
+  file.path(.brf_raw_dir(root), paste0(root, "_", format(date, "%Y-%m-%d"), ".", ext))
+}
+
 .brf_parsed_dir <- function(root, create = TRUE) {
   dir <- file.path(.brf_root_dir(root, create = create), "parsed")
   if (create && !dir.exists(dir)) {
@@ -129,7 +137,10 @@
     return(character())
   }
   entries <- list.dirs(base, recursive = FALSE, full.names = FALSE)
-  entries[nzchar(entries)]
+  entries <- entries[nzchar(entries)]
+  entries <- entries[!grepl("^\\.", entries)]
+  entries <- entries[entries != "BDI"]
+  entries
 }
 
 .brf_extract_report_date_from_name <- function(name) {
@@ -139,7 +150,13 @@
   base <- basename(name)
   match <- regexpr("(\\d{4}-\\d{2}-\\d{2})", base, perl = TRUE)
   if (match[1L] == -1L) {
-    return(as.Date(NA))
+    compact <- regexpr("(\\d{8})", base, perl = TRUE)
+    if (compact[1L] == -1L) {
+      return(as.Date(NA))
+    }
+    found <- regmatches(base, compact)
+    parsed <- suppressWarnings(as.Date(found, format = "%Y%m%d"))
+    return(parsed)
   }
   found <- regmatches(base, match)
   suppressWarnings(as.Date(found))
@@ -254,13 +271,28 @@
   if (!dir.exists(raw_dir)) {
     return(as.Date(character()))
   }
-  files <- list.files(raw_dir, pattern = "\\.html$", full.names = FALSE)
+  files <- list.files(raw_dir, pattern = "\\.html$", full.names = FALSE, ignore.case = TRUE)
   if (!length(files)) {
     return(as.Date(character()))
   }
-  dates <- sub(".*_(\\d{4}-\\d{2}-\\d{2})\\.html$", "\\1", files, perl = TRUE)
-  parsed <- suppressWarnings(as.Date(dates))
+  parsed <- vapply(files, .brf_extract_report_date_from_name, as.Date(NA))
   parsed[!is.na(parsed)]
+}
+
+.brf_raw_files_for_date <- function(root, date) {
+  raw_dir <- .brf_raw_dir(root, create = FALSE)
+  if (!dir.exists(raw_dir)) {
+    return(character())
+  }
+  date <- .brf_normalize_date(date)
+  if (is.na(date)) {
+    return(character())
+  }
+  date_patterns <- c(format(date, "%Y-%m-%d"), format(date, "%Y%m%d"))
+  pattern <- paste(date_patterns, collapse = "|")
+  files <- list.files(raw_dir, pattern = pattern, full.names = TRUE, ignore.case = TRUE)
+  files <- files[grepl("\\.html$", files, ignore.case = TRUE)]
+  files[file.exists(files)]
 }
 
 .brf_load_root_data <- function(root) {

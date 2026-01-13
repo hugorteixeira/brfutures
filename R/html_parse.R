@@ -1,5 +1,5 @@
 .brf_parser_version <- function() {
-  3L
+  7L
 }
 
 .brf_file_has_no_data_message <- function(path) {
@@ -541,8 +541,7 @@
   canonical[identical_raw] <- fallback[identical_raw]
   canonical[!nzchar(canonical)] <- fallback[!nzchar(canonical)]
 
-  # Only apply token_hits to columns that weren't successfully standardized
-  # If canonical != sanitized, then standardization succeeded, so skip token matching
+  # Only expand composite headers unless the column was not standardized at all.
   successfully_standardized <- canonical != sanitized
   token_hits <- lapply(seq_along(sanitized), function(i) {
     hits <- token_targets[vapply(
@@ -550,8 +549,19 @@
       function(token) grepl(token, sanitized[i], fixed = TRUE),
       logical(1)
     )]
-    needs_expansion <- !successfully_standardized[i]
-    if (needs_expansion && length(hits)) hits else character()
+    if (!length(hits)) {
+      return(character())
+    }
+    if (!successfully_standardized[i]) {
+      return(hits)
+    }
+    if (canonical[i] %in% c("previous_settlement", "corrected_settlement")) {
+      return(character())
+    }
+    if (length(hits) > 1L) {
+      return(hits)
+    }
+    character()
   })
   dup <- duplicated(canonical)
   keep_idx <- !dup
@@ -662,6 +672,14 @@
   add_prefix <- valid_codes & !startsWith(df$ticker, root_norm)
   df$ticker[add_prefix] <- paste0(root_norm, df$ticker[add_prefix])
   df$ticker[!valid_codes] <- NA_character_
+  df <- .brf_coalesce_duplicate_columns(df, prefer_large = "settlement_price")
+  if (length(header_map)) {
+    missing_headers <- setdiff(names(df), names(header_map))
+    if (length(missing_headers)) {
+      header_map[missing_headers] <- missing_headers
+    }
+    header_map <- header_map[names(header_map) %in% names(df)]
+  }
   df <- df[order(df$date, df$contract_code, df$ticker), , drop = FALSE]
   df <- .brf_deduplicate_contract_rows(df)
   col_order <- unique(c("date", "root", "contract_code", "ticker", names(df)))

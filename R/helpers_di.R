@@ -61,7 +61,13 @@
 .brf_di_months_between_floor <- function(basis_date, maturity_date) {
   basis_date <- as.Date(basis_date)
   maturity_date <- as.Date(maturity_date)
-  out <- rep(NA_integer_, length(basis_date))
+  len <- max(length(basis_date), length(maturity_date))
+  if (len == 0L) {
+    return(integer())
+  }
+  basis_date <- rep_len(basis_date, len)
+  maturity_date <- rep_len(maturity_date, len)
+  out <- rep(NA_integer_, len)
   valid <- !is.na(basis_date) & !is.na(maturity_date)
   if (!any(valid)) {
     return(out)

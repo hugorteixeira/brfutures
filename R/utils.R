@@ -65,6 +65,29 @@
   list(start = start, end = end)
 }
 
+.brf_xml_cutover_date <- function() {
+  override <- getOption("brfutures.xml_cutover_date", NULL)
+  if (is.null(override)) {
+    override <- getOption("brfutures.bdi_cutover_date", NULL)
+  }
+  if (!is.null(override)) {
+    return(.brf_normalize_date(override))
+  }
+  as.Date("2025-12-16")
+}
+
+.brf_source_for_date <- function(date) {
+  date <- .brf_normalize_date(date)
+  if (is.na(date)) {
+    return("html")
+  }
+  if (date >= .brf_xml_cutover_date()) "xml" else "html"
+}
+
+.brf_is_xml_path <- function(path) {
+  is.character(path) && length(path) == 1L && grepl("\\.xml$", path, ignore.case = TRUE)
+}
+
 .brf_date_seq <- function(start, end) {
   seq(from = start, to = end, by = "day")
 }
@@ -75,6 +98,7 @@
     root = character(),
     contract_code = character(),
     ticker = character(),
+    source = character(),
     open_interest = numeric(),
     close_interest = numeric(),
     trade_count = numeric(),
@@ -92,8 +116,35 @@
     change_points = numeric(),
     last_bid = numeric(),
     last_ask = numeric(),
+    reference_settlement = numeric(),
+    reference_price = numeric(),
+    adjustment_value = numeric(),
     stringsAsFactors = FALSE
   )
+}
+
+.brf_align_bulletin_schema <- function(df) {
+  if (!inherits(df, "data.frame")) {
+    return(df)
+  }
+  template <- .brf_empty_bulletin()
+  base_cols <- names(template)
+  missing <- setdiff(base_cols, names(df))
+  if (length(missing)) {
+    for (col in missing) {
+      base_col <- template[[col]]
+      if (inherits(base_col, "Date")) {
+        df[[col]] <- as.Date(rep(NA, nrow(df)))
+      } else if (is.numeric(base_col)) {
+        df[[col]] <- rep(NA_real_, nrow(df))
+      } else {
+        df[[col]] <- rep(NA_character_, nrow(df))
+      }
+    }
+  }
+  extra <- setdiff(names(df), base_cols)
+  df <- df[, c(base_cols, extra), drop = FALSE]
+  df
 }
 
 .brf_pt_number <- function(x) {
@@ -172,6 +223,61 @@
   key <- paste(df$date, df$ticker, sep = "|")
   keep <- !duplicated(key, fromLast = TRUE)
   df[keep, , drop = FALSE]
+}
+
+.brf_coalesce_duplicate_columns <- function(df, prefer_large = character()) {
+  if (!inherits(df, "data.frame")) {
+    return(df)
+  }
+  if (!nrow(df) || !length(names(df))) {
+    return(df)
+  }
+  names_df <- names(df)
+  base <- sub("\\.\\d+$", "", names_df)
+  if (!any(duplicated(base))) {
+    return(df)
+  }
+  base_order <- unique(base)
+  out <- vector("list", length(base_order))
+  names(out) <- base_order
+  for (base_name in base_order) {
+    idx <- which(base == base_name)
+    if (length(idx) == 1L) {
+      out[[base_name]] <- df[[idx]]
+      next
+    }
+    cols <- lapply(idx, function(i) df[[i]])
+    num_cols <- lapply(cols, function(col) suppressWarnings(as.numeric(col)))
+    non_na <- vapply(num_cols, function(col) sum(!is.na(col)), integer(1))
+    main_pos <- idx[which.max(non_na)]
+    if (base_name %in% prefer_large) {
+      med <- vapply(num_cols, function(col) {
+        col <- col[is.finite(col)]
+        if (!length(col)) {
+          return(NA_real_)
+        }
+        median(abs(col), na.rm = TRUE)
+      }, numeric(1))
+      if (any(is.finite(med))) {
+        main_pos <- idx[which.max(med)]
+      }
+    }
+    main_vals <- df[[main_pos]]
+    for (j in idx[idx != main_pos]) {
+      other_vals <- df[[j]]
+      missing <- is.na(main_vals)
+      if (is.character(main_vals)) {
+        missing <- missing | !nzchar(main_vals)
+      }
+      if (any(missing)) {
+        main_vals[missing] <- other_vals[missing]
+      }
+    }
+    out[[base_name]] <- main_vals
+  }
+  out_df <- as.data.frame(out, stringsAsFactors = FALSE)
+  rownames(out_df) <- NULL
+  out_df
 }
 
 .brf_sanitize_colname <- function(x) {

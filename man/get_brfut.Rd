@@ -25,7 +25,7 @@ get_brfut(
 and returns the desired shape.}
 
 \item{rebuild_agg}{Set to `TRUE` to rebuild aggregates before retrieving
-data. The relevant root caches are rebuilt from the raw HTML files when
+data. The relevant root caches are rebuilt from the raw HTML/XML files when
 necessary.}
 
 \item{...}{Additional arguments forwarded to the treatment function.}

@@ -9,13 +9,13 @@ update_brfut_agg(root = NULL, all = TRUE, rebuild_roots = NULL, quiet = FALSE)
 \arguments{
 \item{root}{Optional character vector with roots to target. When omitted
 and `rebuild_roots` is `TRUE`, every cached root is rebuilt from the raw
-HTML files.}
+HTML/XML files.}
 
 \item{all}{When `TRUE`, refreshes the aggregate cache after the optional root
 rebuilds. Defaults to `TRUE`.}
 
 \item{rebuild_roots}{Controls whether root caches are rebuilt from the raw
-HTML files. When `NULL` (default) the caches are rebuilt only when specific
+HTML/XML files. When `NULL` (default) the caches are rebuilt only when specific
 `root` values are supplied. Set to `TRUE` or `FALSE` to override this
 behaviour.}
 

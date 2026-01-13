@@ -1,8 +1,8 @@
 #' Update cached B3 futures bulletins
 #'
-#' Downloads HTML bulletins for the requested commodity roots, parses them,
-#' and stores both the raw files and tidy daily observations in the configured
-#' cache directory.
+#' Downloads HTML bulletins (legacy) or BVBG XML reports, parses them, and
+#' stores both the raw files and tidy daily observations in the configured cache
+#' directory.
 #'
 #' @param root Optional character vector with commodity roots (e.g. `"WIN"`).
 #'   When omitted the function updates every root already present inside the
@@ -54,40 +54,65 @@ update_brfut <- function(root = NULL,
                                     root,
                                     register_no_data,
                                     force = FALSE,
-                                    quiet = FALSE) {
+                                    quiet = FALSE,
+                                    source = NULL) {
   if (missing(register_no_data) || !is.function(register_no_data)) {
     stop("A register_no_data handler is required.", call. = FALSE)
   }
   if (!file.exists(path)) {
     return(NULL)
   }
+  if (is.null(source)) {
+    source <- if (.brf_is_xml_path(path)) {
+      "xml"
+    } else {
+      "html"
+    }
+  }
   report_date <- .brf_extract_report_date_from_name(path)
   parsed_path <- .brf_parsed_path(root, report_date, create = FALSE)
+  existing <- NULL
   if (file.exists(parsed_path)) {
     existing <- .brf_read_parsed_rds(parsed_path)
     if (!is.null(existing) && .brf_parsed_is_current(existing)) {
       no_data <- isTRUE(attr(existing, "brf_no_data"))
-      if (force && !no_data) {
-        return(list(
-          date = report_date,
-          data = existing,
-          updated = FALSE,
-          no_data = FALSE
-        ))
+      if (!no_data && identical(source, "xml")) {
+        current_source <- NA_character_
+        if ("source" %in% names(existing) && nrow(existing)) {
+          current_source <- unique(na.omit(as.character(existing$source)))[1]
+        }
+        if (!identical(current_source, "xml")) {
+          existing <- NULL
+        }
       }
-      if (no_data) {
-        return(list(
-          date = report_date,
-          data = NULL,
-          updated = FALSE,
-          no_data = TRUE
-        ))
-      }
-      return(NULL)
     }
   }
+  if (!is.null(existing) && .brf_parsed_is_current(existing)) {
+    no_data <- isTRUE(attr(existing, "brf_no_data"))
+    if (force && !no_data) {
+      return(list(
+        date = report_date,
+        data = existing,
+        updated = FALSE,
+        no_data = FALSE
+      ))
+    }
+    if (no_data) {
+      return(list(
+        date = report_date,
+        data = NULL,
+        updated = FALSE,
+        no_data = TRUE
+      ))
+    }
+    return(NULL)
+  }
   parsed <- tryCatch(
-    .brf_parse_html_report_clean(path, root),
+    if (identical(source, "xml")) {
+      .brf_parse_bvbg_xml_for_root(path, root)
+    } else {
+      .brf_parse_html_report_clean(path, root)
+    },
     error = function(e) {
       warning("Failed to parse ", basename(path), ": ", conditionMessage(e), call. = FALSE)
       NULL
@@ -127,6 +152,14 @@ update_brfut <- function(root = NULL,
   if (!nrow(combined)) {
     combined <- .brf_empty_bulletin()
   }
+  if (!"source" %in% names(combined)) {
+    combined$source <- if (nrow(combined)) rep("html", nrow(combined)) else character()
+  } else {
+    missing_source <- is.na(combined$source) | !nzchar(combined$source)
+    if (any(missing_source)) {
+      combined$source[missing_source] <- "html"
+    }
+  }
   if (!nrow(combined)) {
     combined$root <- combined$root
   } else {
@@ -151,17 +184,8 @@ update_brfut <- function(root = NULL,
     combined$root <- rep(root_norm, nrow(combined))
     combined <- combined[order(combined$date, combined$contract_code, combined$ticker), , drop = FALSE]
     combined <- .brf_deduplicate_contract_rows(combined)
-    non_empty_cols <- vapply(combined, function(col) {
-      if (!length(col)) {
-        FALSE
-      } else {
-        any(!is.na(col))
-      }
-    }, logical(1), USE.NAMES = TRUE)
-    if (any(non_empty_cols)) {
-      combined <- combined[, non_empty_cols, drop = FALSE]
-    }
   }
+  combined <- .brf_align_bulletin_schema(combined)
   combined
 }
 
@@ -169,11 +193,33 @@ update_brfut <- function(root = NULL,
   root <- .brf_normalize_root(root)
   raw_dir <- .brf_raw_dir(root)
   .brf_parsed_dir(root)
-  skip_entries <- .brf_no_data_entries(root)
-  skip_files <- unique(skip_entries$filename)
-  skip_dates <- unique(skip_entries$date)
+  skip_entries_html <- .brf_no_data_entries(root, source = "html")
+  skip_entries_xml <- .brf_no_data_entries(root, source = "xml")
+  skip_entries_zip <- .brf_no_data_entries(root, source = "zip")
+  skip_files_html <- unique(skip_entries_html$filename)
+  skip_dates_html <- unique(skip_entries_html$date)
+  if (length(skip_dates_html)) {
+    cutover <- .brf_xml_cutover_date()
+    skip_dates_html <- skip_dates_html[!is.na(skip_dates_html) & skip_dates_html < cutover]
+  }
+  skip_dates_xml <- unique(skip_entries_xml$date)
+  if (length(skip_dates_xml)) {
+    xml_present <- vapply(skip_dates_xml, function(date) {
+      file.exists(.brf_bvbg_parsed_path(date, create = FALSE))
+    }, logical(1))
+    skip_dates_xml <- skip_dates_xml[!xml_present]
+  }
+  skip_dates_zip <- unique(skip_entries_zip$date)
+  if (length(skip_dates_zip)) {
+    xml_present <- vapply(skip_dates_zip, function(date) {
+      file.exists(.brf_bvbg_parsed_path(date, create = FALSE)) ||
+        file.exists(.brf_bvbg_raw_path(date, create = FALSE))
+    }, logical(1))
+    skip_dates_zip <- skip_dates_zip[!xml_present]
+  }
+  skip_dates <- unique(c(skip_dates_html, skip_dates_xml, skip_dates_zip))
   skip_dates <- skip_dates[!is.na(skip_dates)]
-  register_no_data <- function(paths) {
+  register_no_data_html <- function(paths) {
     paths <- unique(paths)
     if (!length(paths)) {
       return()
@@ -186,16 +232,17 @@ update_brfut <- function(root = NULL,
     if (!nrow(info)) {
       return()
     }
-    skip_files <<- unique(c(skip_files, info$filename))
+    skip_files_html <<- unique(c(skip_files_html, info$filename))
     new_skip_dates <- info$date[!is.na(info$date)]
     if (length(new_skip_dates)) {
+      skip_dates_html <<- unique(c(skip_dates_html, new_skip_dates))
       skip_dates <<- unique(c(skip_dates, new_skip_dates))
       lapply(new_skip_dates, function(date) .brf_remove_parsed_day(root, date))
     }
     unlink(paths[file.exists(paths)])
   }
-  if (length(skip_files)) {
-    skip_paths <- file.path(raw_dir, skip_files)
+  if (length(skip_files_html)) {
+    skip_paths <- file.path(raw_dir, skip_files_html)
     existing_skip_paths <- skip_paths[file.exists(skip_paths)]
     if (length(existing_skip_paths)) {
       unlink(existing_skip_paths)
@@ -220,6 +267,14 @@ update_brfut <- function(root = NULL,
   if (is.null(start_date)) {
     if (length(existing_files)) {
       start_date <- max(existing_files) + 1
+    } else if (nrow(current)) {
+      current$date <- as.Date(current$date)
+      last_date <- suppressWarnings(max(current$date, na.rm = TRUE))
+      if (is.finite(last_date) && !is.na(last_date)) {
+        start_date <- last_date + 1
+      } else {
+        start_date <- end
+      }
     } else {
       stop(
         "No cached data for root '", root, "'. Provide `start` to seed the history.",
@@ -248,7 +303,11 @@ update_brfut <- function(root = NULL,
     }
     return(invisible(NULL))
   }
+  cutover <- .brf_xml_cutover_date()
+  html_days <- target_days[target_days < cutover]
+  xml_days <- target_days[target_days >= cutover]
   newly_downloaded <- character()
+  xml_downloaded <- character()
   preexisting_needed <- character()
   parsed_updates <- list()
   refresh_dates <- as.Date(character())
@@ -260,7 +319,7 @@ update_brfut <- function(root = NULL,
       message("Parsing ", basename(path))
     }
     if (.brf_file_has_no_data_message(path)) {
-      register_no_data(path)
+      register_no_data_html(path)
       return()
     }
     doc_check <- tryCatch(
@@ -268,10 +327,17 @@ update_brfut <- function(root = NULL,
       error = function(e) NULL
     )
     if (!is.null(doc_check) && !.brf_root_available_in_doc(doc_check, root)) {
-      register_no_data(path)
+      register_no_data_html(path)
       return()
     }
-    result <- .brf_sync_parsed_report(path, root, register_no_data, force = force, quiet = quiet)
+    result <- .brf_sync_parsed_report(
+      path,
+      root,
+      register_no_data_html,
+      force = force,
+      quiet = quiet,
+      source = "html"
+    )
     if (is.null(result)) {
       return()
     }
@@ -284,34 +350,71 @@ update_brfut <- function(root = NULL,
       refresh_dates <<- unique(c(refresh_dates, result$date))
     }
   }
-  for (raw_day in target_days) {
+  for (raw_day in html_days) {
     day_date <- as.Date(raw_day, origin = "1970-01-01")
-    file_name <- paste0(root, "_", format(day_date, "%Y-%m-%d"), ".html")
-    dest <- file.path(raw_dir, file_name)
-    if (file.exists(dest)) {
+    raw_files <- .brf_raw_files_for_date(root, day_date)
+    if (length(raw_files)) {
       already_cached <- nrow(current) && day_date %in% as.Date(current$date)
       already_skipped <- length(skip_dates) && day_date %in% skip_dates
       if (!already_cached && !already_skipped) {
-        preexisting_needed <- c(preexisting_needed, dest)
+        preexisting_needed <- c(preexisting_needed, raw_files)
       }
       next
     }
-    newly_downloaded <- c(newly_downloaded, .brf_download_html(day_date, root, quiet = quiet))
-    ensure_path(dest)
+    dest <- .brf_raw_path(root, day_date)
+    downloaded <- .brf_download_html(day_date, root, quiet = quiet)
+    newly_downloaded <- c(newly_downloaded, downloaded)
+    ensure_path(downloaded, force = FALSE)
   }
-  if (!quiet && length(newly_downloaded)) {
-    message("Root ", root, ": downloaded ", length(newly_downloaded), " report(s).")
+  if (length(xml_days)) {
+    processed_xml_dates <- as.Date(character())
+    for (raw_day in xml_days) {
+      day_date <- as.Date(raw_day, origin = "1970-01-01")
+      raw_exists <- file.exists(.brf_bvbg_raw_path(day_date, create = FALSE))
+      parsed <- .brf_bvbg_ensure_parsed_day(day_date, quiet = quiet)
+      if (isTRUE(attr(parsed, "brf_no_data"))) {
+      if (isTRUE(attr(parsed, "brf_download_failed"))) {
+        if (!quiet) {
+          message("BVBG: unable to download XML for ", format(day_date, "%Y-%m-%d"))
+        }
+        .brf_register_no_data_zip("ALL", day_date, quiet = quiet)
+        skip_dates_zip <- unique(c(skip_dates_zip, day_date))
+        skip_dates <- unique(c(skip_dates, day_date))
+        refresh_dates <- unique(c(refresh_dates, day_date))
+      } else {
+        .brf_register_no_data_xml("ALL", day_date, quiet = quiet)
+        skip_dates_xml <- unique(c(skip_dates_xml, day_date))
+        skip_dates <- unique(c(skip_dates, day_date))
+          refresh_dates <- unique(c(refresh_dates, day_date))
+        }
+        next
+      }
+      if (!raw_exists && file.exists(.brf_bvbg_raw_path(day_date, create = FALSE))) {
+        xml_downloaded <- c(xml_downloaded, as.character(day_date))
+      }
+      processed_xml_dates <- unique(c(processed_xml_dates, day_date))
+      root_subset <- .brf_bvbg_filter_root_shared(parsed, root)
+      if (!isTRUE(attr(root_subset, "brf_no_data")) && nrow(root_subset)) {
+        parsed_updates[[length(parsed_updates) + 1L]] <- .brf_parsed_strip_attrs(root_subset)
+      }
+    }
+    if (length(processed_xml_dates)) {
+      refresh_dates <- unique(c(refresh_dates, processed_xml_dates))
+    }
+  }
+  if (!quiet && length(c(newly_downloaded, xml_downloaded))) {
+    message("Root ", root, ": downloaded ", length(c(newly_downloaded, xml_downloaded)), " report(s).")
   }
   parsed_needed <- newly_downloaded
   data_path <- .brf_root_data_path(root, create = FALSE)
   existing_parsed_files <- .brf_list_parsed_files(root)
   if (!file.exists(data_path) || !length(existing_parsed_files)) {
-    parsed_needed <- list.files(raw_dir, pattern = "\\.html$", full.names = TRUE)
+    parsed_needed <- list.files(raw_dir, pattern = "\\.html$", full.names = TRUE, ignore.case = TRUE)
   }
   parsed_needed <- unique(c(parsed_needed, preexisting_needed))
   parsed_needed <- parsed_needed[file.exists(parsed_needed)]
-  if (length(skip_files)) {
-    parsed_needed <- parsed_needed[!(basename(parsed_needed) %in% skip_files)]
+  if (length(skip_files_html)) {
+    parsed_needed <- parsed_needed[!(basename(parsed_needed) %in% skip_files_html)]
   }
   if (length(parsed_needed)) {
     for (path in parsed_needed) {
@@ -363,8 +466,9 @@ update_brfut <- function(root = NULL,
     }
     return(invisible(combined))
   }
-  html_files <- list.files(raw_dir, pattern = "\\.html$", full.names = TRUE)
-  if (!length(html_files)) {
+  html_files <- list.files(raw_dir, pattern = "\\.html$", full.names = TRUE, ignore.case = TRUE)
+  xml_years <- .brf_bvbg_list_years()
+  if (!length(html_files) && !length(xml_years)) {
     combined <- .brf_prepare_root_data(root, .brf_empty_bulletin())
     .brf_save_root_data(root, combined)
     if (!quiet) {
@@ -372,14 +476,19 @@ update_brfut <- function(root = NULL,
     }
     return(invisible(combined))
   }
-  removed <- .brf_handle_no_data_paths(html_files, root, quiet = quiet)
+  removed <- if (length(html_files)) {
+    .brf_handle_no_data_paths(html_files, root, quiet = quiet)
+  } else {
+    .brf_no_data_empty()
+  }
   if (is.data.frame(removed) && nrow(removed)) {
     for (date_val in removed$date[!is.na(removed$date)]) {
       .brf_remove_parsed_day(root, date_val)
     }
   }
-  html_files <- list.files(raw_dir, pattern = "\\.html$", full.names = TRUE)
-  if (!length(html_files)) {
+  html_files <- list.files(raw_dir, pattern = "\\.html$", full.names = TRUE, ignore.case = TRUE)
+  xml_years <- .brf_bvbg_list_years()
+  if (!length(html_files) && !length(xml_years)) {
     combined <- .brf_prepare_root_data(root, .brf_empty_bulletin())
     .brf_save_root_data(root, combined)
     if (!quiet) {
@@ -387,7 +496,7 @@ update_brfut <- function(root = NULL,
     }
     return(invisible(combined))
   }
-  register_no_data <- function(paths) {
+  register_no_data_html <- function(paths) {
     paths <- unique(paths)
     if (!length(paths)) {
       return()
@@ -400,17 +509,47 @@ update_brfut <- function(root = NULL,
     }
   }
   for (path in html_files) {
-    .brf_sync_parsed_report(path, root, register_no_data, force = FALSE, quiet = quiet)
+    .brf_sync_parsed_report(path, root, register_no_data_html, force = FALSE, quiet = quiet, source = "html")
   }
-  skip_dates <- .brf_no_data_entries(root)$date
-  skip_dates <- skip_dates[!is.na(skip_dates)]
-  parsed_frames <- .brf_collect_parsed_data(root, skip_dates = skip_dates)
-  combined <- if (length(parsed_frames)) {
-    .brf_bind_rows(parsed_frames)
+  skip_dates_html <- .brf_no_data_entries(root, source = "html")$date
+  if (length(skip_dates_html)) {
+    skip_dates_html <- skip_dates_html[!is.na(skip_dates_html) & skip_dates_html < .brf_xml_cutover_date()]
+  }
+  parsed_frames <- .brf_collect_parsed_data(root, skip_dates = skip_dates_html)
+  if (length(parsed_frames)) {
+    parsed_frames <- lapply(parsed_frames, function(df) {
+      df$date <- as.Date(df$date)
+      df[df$date < .brf_xml_cutover_date(), , drop = FALSE]
+    })
+    parsed_frames <- Filter(function(df) nrow(df) > 0, parsed_frames)
+  }
+  xml_frames <- list()
+  if (length(xml_years)) {
+    for (year in xml_years) {
+      year_data <- .brf_bvbg_year_data(year, quiet = quiet)
+      if (!inherits(year_data, "data.frame") || !nrow(year_data)) {
+        next
+      }
+      year_data$date <- as.Date(year_data$date)
+      year_data <- year_data[year_data$date >= .brf_xml_cutover_date(), , drop = FALSE]
+      if (!nrow(year_data)) {
+        next
+      }
+      root_subset <- .brf_bvbg_filter_root_shared(year_data, root)
+      if (!isTRUE(attr(root_subset, "brf_no_data")) && nrow(root_subset)) {
+        xml_frames[[length(xml_frames) + 1L]] <- root_subset
+      }
+    }
+  }
+  combined_sources <- list()
+  if (length(parsed_frames)) combined_sources <- c(combined_sources, parsed_frames)
+  if (length(xml_frames)) combined_sources <- c(combined_sources, xml_frames)
+  combined <- if (length(combined_sources)) {
+    .brf_bind_rows(combined_sources)
   } else {
     .brf_empty_bulletin()
   }
-  combined <- .brf_prepare_root_data(root, combined, skip_dates = skip_dates)
+  combined <- .brf_prepare_root_data(root, combined, skip_dates = skip_dates_html)
   .brf_save_root_data(root, combined)
   if (!quiet) {
     message("Root ", root, ": rebuilt cache with ", nrow(combined), " rows.")
@@ -422,11 +561,11 @@ update_brfut <- function(root = NULL,
 #'
 #' @param root Optional character vector with roots to target. When omitted
 #'   and `rebuild_roots` is `TRUE`, every cached root is rebuilt from the raw
-#'   HTML files.
+#'   HTML/XML files.
 #' @param all When `TRUE`, refreshes the aggregate cache after the optional root
 #'   rebuilds. Defaults to `TRUE`.
 #' @param rebuild_roots Controls whether root caches are rebuilt from the raw
-#'   HTML files. When `NULL` (default) the caches are rebuilt only when specific
+#'   HTML/XML files. When `NULL` (default) the caches are rebuilt only when specific
 #'   `root` values are supplied. Set to `TRUE` or `FALSE` to override this
 #'   behaviour.
 #' @param quiet Set to `TRUE` to silence informational messages.
@@ -498,7 +637,7 @@ update_brfut_agg <- function(root = NULL,
 #'   `"standard"`, `"ohlcv_xts"`) or a function that receives the raw data frame
 #'   and returns the desired shape.
 #' @param rebuild_agg Set to `TRUE` to rebuild aggregates before retrieving
-#'   data. The relevant root caches are rebuilt from the raw HTML files when
+#'   data. The relevant root caches are rebuilt from the raw HTML/XML files when
 #'   necessary.
 #' @param ... Additional arguments forwarded to the treatment function.
 #'
