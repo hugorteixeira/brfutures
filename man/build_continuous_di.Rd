@@ -11,7 +11,8 @@ build_continuous_di(
   root = "DI1",
   allowed_maturities = "all",
   cal = NULL,
-  include_pnl = FALSE
+  include_pnl = FALSE,
+  add_attrs = TRUE
 )
 }
 \arguments{
@@ -33,6 +34,9 @@ month codes (e.g. `c("F", "G", "H")`) to restrict eligible contracts.}
 by the DI helpers.}
 
 \item{include_pnl}{When `TRUE`, adds P&L, return, adjusted OHLC, and index columns.}
+
+\item{add_attrs}{When `TRUE` (default), enrich the series with futures
+metadata via `.brf_add_futures_attrs()`. Set to `FALSE` to skip.}
 }
 \value{
 An `xts` object when a single tenor is supplied, or a named list of

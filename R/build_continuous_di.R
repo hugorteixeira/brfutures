@@ -19,6 +19,8 @@
 #' @param cal Optional `bizdays` calendar; defaults to the ANBIMA calendar used
 #'   by the DI helpers.
 #' @param include_pnl When `TRUE`, adds P&L, return, adjusted OHLC, and index columns.
+#' @param add_attrs When `TRUE` (default), enrich the series with futures
+#'   metadata via `.brf_add_futures_attrs()`. Set to `FALSE` to skip.
 #' @return An `xts` object when a single tenor is supplied, or a named list of
 #'   `xts` objects when `target_tenor` has length > 1. Attributes include the
 #'   roll schedule and active contracts.
@@ -29,7 +31,8 @@ build_continuous_di <- function(data,
                                 root = "DI1",
                                 allowed_maturities = "all",
                                 cal = NULL,
-                                include_pnl = FALSE) {
+                                include_pnl = FALSE,
+                                add_attrs = TRUE) {
   .brf_di_require_bizdays()
   tenor_unit <- match.arg(tenor_unit)
   if (length(target_tenor) > 1L) {
@@ -41,7 +44,8 @@ build_continuous_di <- function(data,
         root = root,
         allowed_maturities = allowed_maturities,
         cal = cal,
-        include_pnl = include_pnl
+        include_pnl = include_pnl,
+        add_attrs = add_attrs
       )
     })
     names(series_list) <- .brf_di_label_tenor(target_tenor, tenor_unit)
@@ -54,7 +58,8 @@ build_continuous_di <- function(data,
     root = root,
     allowed_maturities = allowed_maturities,
     cal = cal,
-    include_pnl = include_pnl
+    include_pnl = include_pnl,
+    add_attrs = add_attrs
   )
 }
 
@@ -579,7 +584,8 @@ build_continuous_di <- function(data,
                                        root,
                                        allowed_maturities,
                                        cal,
-                                       include_pnl) {
+                                       include_pnl,
+                                       add_attrs) {
   prepared <- .brf_di_prepare_continuous_data(
     data = data,
     root = root,
@@ -651,7 +657,9 @@ build_continuous_di <- function(data,
   #  attr(series, "fut_multiplier") <- \1
   # attr(series, "fonte") <- "Obter_b3_fut_cont"
   root <- paste0("DI1FUT_1D_", target_tenor, substr(toupper(tenor_unit), 1, 1), "BR_B")
-  series <- .brf_add_futures_attrs(series, root)
+  if (isTRUE(add_attrs)) {
+    series <- .brf_add_futures_attrs(series, root)
+  }
   assign(root, series, envir = .GlobalEnv)
   return(series)
 }

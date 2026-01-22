@@ -14,6 +14,8 @@
 #'   a character vector with month codes (e.g. `c("F", "G", "H")`).
 #' @param add_root Optional character vector with additional roots to treat as
 #'   extensions of `root` (useful for historical naming changes).
+#' @param add_attrs When `TRUE` (default), enrich the series with futures
+#'   metadata via `.brf_add_futures_attrs()`. Set to `FALSE` to skip.
 #' @return An OHLCV `xts` object with attributes describing the roll schedule
 #'   and active contracts.
 #' @export
@@ -21,13 +23,15 @@ build_backward_adjusted <- function(data,
                                     root,
                                     days_before_roll = 5,
                                     maturities = "all",
-                                    add_root = NULL) {
+                                    add_root = NULL,
+                                    add_attrs = TRUE) {
   .brf_build_continuous(
     data = data,
     root = root,
     days_before_roll = days_before_roll,
     maturities = maturities,
     add_root = add_root,
+    add_attrs = add_attrs,
     mode = "backward"
   )
 }
@@ -46,13 +50,15 @@ build_forward_adjusted <- function(data,
                                    root,
                                    days_before_roll = 5,
                                    maturities = "all",
-                                   add_root = NULL) {
+                                   add_root = NULL,
+                                   add_attrs = TRUE) {
   .brf_build_continuous(
     data = data,
     root = root,
     days_before_roll = days_before_roll,
     maturities = maturities,
     add_root = add_root,
+    add_attrs = add_attrs,
     mode = "forward"
   )
 }
@@ -62,6 +68,7 @@ build_forward_adjusted <- function(data,
                                   days_before_roll,
                                   maturities,
                                   add_root,
+                                  add_attrs,
                                   mode) {
   mode <- match.arg(mode, c("backward", "forward"))
   df <- .brf_validate_contract_data(data)
@@ -217,7 +224,9 @@ build_forward_adjusted <- function(data,
   )
   attr(series, "roll_schedule") <- roll_export
   root <- paste0(root, "FUT_1D_", days_before_roll, "DBR_", toupper(substr(mode, 1, 1)))
-  series <- .brf_add_futures_attrs(series, root)
+  if (isTRUE(add_attrs)) {
+    series <- .brf_add_futures_attrs(series, root)
+  }
   assign(root, series, envir = .GlobalEnv)
   return(series)
 }

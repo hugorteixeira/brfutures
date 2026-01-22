@@ -9,7 +9,8 @@ build_forward_adjusted(
   root,
   days_before_roll = 5,
   maturities = "all",
-  add_root = NULL
+  add_root = NULL,
+  add_attrs = TRUE
 )
 }
 \arguments{
@@ -27,6 +28,9 @@ a character vector with month codes (e.g. `c("F", "G", "H")`).}
 
 \item{add_root}{Optional character vector with additional roots to treat as
 extensions of `root` (useful for historical naming changes).}
+
+\item{add_attrs}{When `TRUE` (default), enrich the series with futures
+metadata via `.brf_add_futures_attrs()`. Set to `FALSE` to skip.}
 }
 \value{
 An OHLCV `xts` object with attributes describing the roll schedule
