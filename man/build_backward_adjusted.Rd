@@ -10,7 +10,8 @@ build_backward_adjusted(
   days_before_roll = 5,
   maturities = "all",
   add_root = NULL,
-  add_attrs = TRUE
+  add_attrs = TRUE,
+  add_globalenv = TRUE
 )
 }
 \arguments{
@@ -31,6 +32,9 @@ extensions of `root` (useful for historical naming changes).}
 
 \item{add_attrs}{When `TRUE` (default), enrich the series with futures
 metadata via `.brf_add_futures_attrs()`. Set to `FALSE` to skip.}
+
+\item{add_globalenv}{When `TRUE` (default), assigns the resulting series into
+the global environment. Set to `FALSE` to skip.}
 }
 \value{
 An OHLCV `xts` object with attributes describing the roll schedule

@@ -16,6 +16,8 @@
 #'   extensions of `root` (useful for historical naming changes).
 #' @param add_attrs When `TRUE` (default), enrich the series with futures
 #'   metadata via `.brf_add_futures_attrs()`. Set to `FALSE` to skip.
+#' @param add_globalenv When `TRUE` (default), assigns the resulting series into
+#'   the global environment. Set to `FALSE` to skip.
 #' @return An OHLCV `xts` object with attributes describing the roll schedule
 #'   and active contracts.
 #' @export
@@ -24,7 +26,8 @@ build_backward_adjusted <- function(data,
                                     days_before_roll = 5,
                                     maturities = "all",
                                     add_root = NULL,
-                                    add_attrs = TRUE) {
+                                    add_attrs = TRUE,
+                                    add_globalenv = TRUE) {
   .brf_build_continuous(
     data = data,
     root = root,
@@ -32,6 +35,7 @@ build_backward_adjusted <- function(data,
     maturities = maturities,
     add_root = add_root,
     add_attrs = add_attrs,
+    add_globalenv = add_globalenv,
     mode = "backward"
   )
 }
@@ -51,7 +55,8 @@ build_forward_adjusted <- function(data,
                                    days_before_roll = 5,
                                    maturities = "all",
                                    add_root = NULL,
-                                   add_attrs = TRUE) {
+                                   add_attrs = TRUE,
+                                   add_globalenv = TRUE) {
   .brf_build_continuous(
     data = data,
     root = root,
@@ -59,6 +64,7 @@ build_forward_adjusted <- function(data,
     maturities = maturities,
     add_root = add_root,
     add_attrs = add_attrs,
+    add_globalenv = add_globalenv,
     mode = "forward"
   )
 }
@@ -69,6 +75,7 @@ build_forward_adjusted <- function(data,
                                   maturities,
                                   add_root,
                                   add_attrs,
+                                  add_globalenv,
                                   mode) {
   mode <- match.arg(mode, c("backward", "forward"))
   df <- .brf_validate_contract_data(data)
@@ -227,7 +234,9 @@ build_forward_adjusted <- function(data,
   if (isTRUE(add_attrs)) {
     series <- .brf_add_futures_attrs(series, root)
   }
-  assign(root, series, envir = .GlobalEnv)
+  if (isTRUE(add_globalenv)) {
+    assign(root, series, envir = .GlobalEnv)
+  }
   return(series)
 }
 

@@ -21,6 +21,8 @@
 #' @param include_pnl When `TRUE`, adds P&L, return, adjusted OHLC, and index columns.
 #' @param add_attrs When `TRUE` (default), enrich the series with futures
 #'   metadata via `.brf_add_futures_attrs()`. Set to `FALSE` to skip.
+#' @param add_globalenv When `TRUE` (default), assigns the resulting series into
+#'   the global environment. Set to `FALSE` to skip.
 #' @return An `xts` object when a single tenor is supplied, or a named list of
 #'   `xts` objects when `target_tenor` has length > 1. Attributes include the
 #'   roll schedule and active contracts.
@@ -32,7 +34,8 @@ build_continuous_di <- function(data,
                                 allowed_maturities = "all",
                                 cal = NULL,
                                 include_pnl = FALSE,
-                                add_attrs = TRUE) {
+                                add_attrs = TRUE,
+                                add_globalenv = TRUE) {
   .brf_di_require_bizdays()
   tenor_unit <- match.arg(tenor_unit)
   if (length(target_tenor) > 1L) {
@@ -45,7 +48,8 @@ build_continuous_di <- function(data,
         allowed_maturities = allowed_maturities,
         cal = cal,
         include_pnl = include_pnl,
-        add_attrs = add_attrs
+        add_attrs = add_attrs,
+        add_globalenv = add_globalenv
       )
     })
     names(series_list) <- .brf_di_label_tenor(target_tenor, tenor_unit)
@@ -59,7 +63,8 @@ build_continuous_di <- function(data,
     allowed_maturities = allowed_maturities,
     cal = cal,
     include_pnl = include_pnl,
-    add_attrs = add_attrs
+    add_attrs = add_attrs,
+    add_globalenv = add_globalenv
   )
 }
 
@@ -585,7 +590,8 @@ build_continuous_di <- function(data,
                                        allowed_maturities,
                                        cal,
                                        include_pnl,
-                                       add_attrs) {
+                                       add_attrs,
+                                       add_globalenv) {
   prepared <- .brf_di_prepare_continuous_data(
     data = data,
     root = root,
@@ -660,6 +666,8 @@ build_continuous_di <- function(data,
   if (isTRUE(add_attrs)) {
     series <- .brf_add_futures_attrs(series, root)
   }
-  assign(root, series, envir = .GlobalEnv)
+  if (isTRUE(add_globalenv)) {
+    assign(root, series, envir = .GlobalEnv)
+  }
   return(series)
 }

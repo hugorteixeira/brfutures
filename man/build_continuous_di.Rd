@@ -12,7 +12,8 @@ build_continuous_di(
   allowed_maturities = "all",
   cal = NULL,
   include_pnl = FALSE,
-  add_attrs = TRUE
+  add_attrs = TRUE,
+  add_globalenv = TRUE
 )
 }
 \arguments{
@@ -37,6 +38,9 @@ by the DI helpers.}
 
 \item{add_attrs}{When `TRUE` (default), enrich the series with futures
 metadata via `.brf_add_futures_attrs()`. Set to `FALSE` to skip.}
+
+\item{add_globalenv}{When `TRUE` (default), assigns the resulting series into
+the global environment. Set to `FALSE` to skip.}
 }
 \value{
 An `xts` object when a single tenor is supplied, or a named list of
