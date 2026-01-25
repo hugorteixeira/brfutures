@@ -10,6 +10,12 @@
 #' @param root Character scalar with the primary contract root (e.g. "WIN").
 #' @param days_before_roll Non-negative integer indicating how many calendar
 #'   days before maturity the function should roll into the next contract.
+#' @param roll_date_col Column used as the roll anchor. Defaults to
+#'   `"last_trade_date"`. Uses the column if present, otherwise computed from
+#'   the last available `date` per ticker.
+#' @param lock_roll When `TRUE`, once the series rolls into a newer contract it
+#'   never rolls back to an older one. Days without eligible contracts are
+#'   skipped.
 #' @param maturities Either "all" (default) to allow every listed maturity or
 #'   a character vector with month codes (e.g. `c("F", "G", "H")`).
 #' @param add_root Optional character vector with additional roots to treat as
@@ -24,6 +30,8 @@
 build_backward_adjusted <- function(data,
                                     root,
                                     days_before_roll = 5,
+                                    roll_date_col = "last_trade_date",
+                                    lock_roll = TRUE,
                                     maturities = "all",
                                     add_root = NULL,
                                     add_attrs = TRUE,
@@ -32,6 +40,8 @@ build_backward_adjusted <- function(data,
     data = data,
     root = root,
     days_before_roll = days_before_roll,
+    roll_date_col = roll_date_col,
+    lock_roll = lock_roll,
     maturities = maturities,
     add_root = add_root,
     add_attrs = add_attrs,
@@ -53,6 +63,8 @@ build_backward_adjusted <- function(data,
 build_forward_adjusted <- function(data,
                                    root,
                                    days_before_roll = 5,
+                                   roll_date_col = "last_trade_date",
+                                   lock_roll = TRUE,
                                    maturities = "all",
                                    add_root = NULL,
                                    add_attrs = TRUE,
@@ -61,6 +73,8 @@ build_forward_adjusted <- function(data,
     data = data,
     root = root,
     days_before_roll = days_before_roll,
+    roll_date_col = roll_date_col,
+    lock_roll = lock_roll,
     maturities = maturities,
     add_root = add_root,
     add_attrs = add_attrs,
@@ -72,6 +86,8 @@ build_forward_adjusted <- function(data,
 .brf_build_continuous <- function(data,
                                   root,
                                   days_before_roll,
+                                  roll_date_col,
+                                  lock_roll,
                                   maturities,
                                   add_root,
                                   add_attrs,
@@ -99,6 +115,33 @@ build_forward_adjusted <- function(data,
 
   df$ticker <- toupper(trimws(as.character(df$ticker)))
   df$root <- toupper(trimws(as.character(df$root)))
+
+  roll_date_col <- if (is.null(roll_date_col) || length(roll_date_col) != 1L || is.na(roll_date_col)) {
+    "maturity"
+  } else {
+    trimws(as.character(roll_date_col))
+  }
+  if (!nzchar(roll_date_col)) {
+    roll_date_col <- "maturity"
+  }
+  roll_key <- tolower(roll_date_col)
+  if (roll_key == "last_trade_date") {
+    if ("last_trade_date" %in% names(df)) {
+      df$roll_date <- as.Date(df$last_trade_date)
+    } else {
+      last_by_ticker <- tapply(df$date, df$ticker, max, na.rm = TRUE)
+      df$roll_date <- as.Date(last_by_ticker[df$ticker])
+    }
+  } else {
+    if (!roll_date_col %in% names(df)) {
+      stop("Roll date column '", roll_date_col, "' not found in data.", call. = FALSE)
+    }
+    df$roll_date <- as.Date(df[[roll_date_col]])
+  }
+  df <- df[!is.na(df$roll_date), , drop = FALSE]
+  if (!nrow(df)) {
+    stop("No valid rows after filtering out missing roll dates.", call. = FALSE)
+  }
 
   numeric_cols <- intersect(c("open", "high", "low", "close", "volume", "volume_qty"), names(df))
   if (length(numeric_cols)) {
@@ -129,22 +172,46 @@ build_forward_adjusted <- function(data,
   }
 
   df$days_to_maturity <- as.integer(df$maturity - df$date)
+  df$days_to_roll <- as.integer(df$roll_date - df$date)
   df <- df[order(df$date, df$maturity, df$ticker), , drop = FALSE]
 
   by_date <- split(df, df$date)
+  lock_roll <- isTRUE(lock_roll)
+  roll_info <- aggregate(roll_date ~ ticker, df, max)
+  maturity_info <- aggregate(maturity ~ ticker, df, max)
+  roll_info <- merge(roll_info, maturity_info, by = "ticker", all.x = TRUE)
+  roll_info <- roll_info[order(roll_info$roll_date, roll_info$maturity, roll_info$ticker), , drop = FALSE]
+  ticker_rank <- setNames(seq_len(nrow(roll_info)), roll_info$ticker)
   trading_days <- sort(unique(df$date))
   selected_list <- vector("list", length(trading_days))
+  selected_count <- 0L
+  min_rank <- NA_integer_
   for (i in seq_along(trading_days)) {
     day <- trading_days[i]
     candidates <- by_date[[as.character(day)]]
-    selected_list[[i]] <- .brf_pick_front_contract(candidates, days_before_roll)
+    if (lock_roll && !is.na(min_rank)) {
+      ranks <- ticker_rank[candidates$ticker]
+      keep_idx <- !is.na(ranks) & ranks >= min_rank
+      candidates <- candidates[keep_idx, , drop = FALSE]
+    }
+    pick <- .brf_pick_front_contract(candidates, days_before_roll)
+    if (!nrow(pick)) {
+      next
+    }
+    selected_count <- selected_count + 1L
+    selected_list[[selected_count]] <- pick
+    if (lock_roll) {
+      pick_rank <- ticker_rank[pick$ticker]
+      if (!is.na(pick_rank)) {
+        min_rank <- pick_rank
+      }
+    }
   }
-  selected <- do.call(rbind, selected_list)
-  rownames(selected) <- NULL
-
-  if (!nrow(selected)) {
+  if (!selected_count) {
     stop("Unable to determine an active contract for the selected period.", call. = FALSE)
   }
+  selected <- do.call(rbind, selected_list[seq_len(selected_count)])
+  rownames(selected) <- NULL
 
   per_ticker <- split(df, df$ticker)
 
@@ -218,10 +285,12 @@ build_forward_adjusted <- function(data,
     root = main_root,
     extra_roots = extra_roots,
     all_roots = roots,
+    roll_date_col = roll_date_col,
+    lock_roll = lock_roll,
     days_before_roll = days_before_roll,
     maturities = allowed_mats
   )
-  attr(series, "active_contracts") <- data.frame(
+  active_contracts <- data.frame(
     date = idx,
     root = selected$root,
     ticker = selected$ticker,
@@ -229,6 +298,13 @@ build_forward_adjusted <- function(data,
     days_to_maturity = selected$days_to_maturity,
     stringsAsFactors = FALSE
   )
+  if ("roll_date" %in% names(selected)) {
+    active_contracts$roll_date <- selected$roll_date
+  }
+  if ("days_to_roll" %in% names(selected)) {
+    active_contracts$days_to_roll <- selected$days_to_roll
+  }
+  attr(series, "active_contracts") <- active_contracts
   attr(series, "roll_schedule") <- roll_export
   root <- paste0(root, "FUT_1D_", days_before_roll, "DBR_", toupper(substr(mode, 1, 1)))
   if (isTRUE(add_attrs)) {
@@ -292,16 +368,20 @@ build_forward_adjusted <- function(data,
   if (!nrow(rows)) {
     return(rows)
   }
-  rows <- rows[order(rows$days_to_maturity, rows$maturity, rows$ticker), , drop = FALSE]
-  future_mask <- rows$days_to_maturity >= 0L
-  eligible <- future_mask & rows$days_to_maturity > days_before_roll
+  days_col <- if ("days_to_roll" %in% names(rows)) "days_to_roll" else "days_to_maturity"
+  date_col <- if ("roll_date" %in% names(rows)) "roll_date" else "maturity"
+  days_vals <- rows[[days_col]]
+  rows <- rows[order(days_vals, rows[[date_col]], rows$ticker), , drop = FALSE]
+  days_vals <- rows[[days_col]]
+  future_mask <- !is.na(days_vals) & days_vals >= 0L
+  eligible <- future_mask & days_vals > days_before_roll
   if (any(eligible)) {
     return(rows[which(eligible)[1L], , drop = FALSE])
   }
   if (any(future_mask)) {
     return(rows[which(future_mask)[1L], , drop = FALSE])
   }
-  rows[which.max(rows$days_to_maturity), , drop = FALSE]
+  rows[which.max(days_vals), , drop = FALSE]
 }
 
 .brf_compute_roll_schedule <- function(selected, per_ticker) {

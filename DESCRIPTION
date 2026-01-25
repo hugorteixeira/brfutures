@@ -23,6 +23,8 @@ Imports:
     tibble,
     bizdays
 Suggests:
-    testthat (>= 3.2.1)
+    testthat (>= 3.2.1),
+    DBI,
+    RPostgres
 Config/testthat/edition: 3
 RoxygenNote: 7.3.2

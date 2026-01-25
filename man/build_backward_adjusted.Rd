@@ -8,6 +8,8 @@ build_backward_adjusted(
   data,
   root,
   days_before_roll = 5,
+  roll_date_col = "last_trade_date",
+  lock_roll = TRUE,
   maturities = "all",
   add_root = NULL,
   add_attrs = TRUE,
@@ -23,6 +25,14 @@ and OHLC columns).}
 
 \item{days_before_roll}{Non-negative integer indicating how many calendar
 days before maturity the function should roll into the next contract.}
+
+\item{roll_date_col}{Column used as the roll anchor. Defaults to
+`"last_trade_date"`. Uses the column if present, otherwise computed from
+the last available `date` per ticker.}
+
+\item{lock_roll}{When `TRUE`, once the series rolls into a newer contract it
+never rolls back to an older one. Days without eligible contracts are
+skipped.}
 
 \item{maturities}{Either "all" (default) to allow every listed maturity or
 a character vector with month codes (e.g. `c("F", "G", "H")`).}
