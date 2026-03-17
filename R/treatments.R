@@ -638,7 +638,8 @@
                                    fees,
                                    ticksize,
                                    multiplier,
-                                   tickvalue = multiplier * ticksize) {
+                                   tickvalue = multiplier * ticksize,
+                                   add_tick_columns = !is.null(tickvalue)) {
   attr(data, "slippage") <- slippage
   attr(data, "fees") <- fees
   attr(data, "ticksize") <- ticksize
@@ -648,6 +649,38 @@
       attr(data, "tickvalue") <- NULL
     } else {
       attr(data, "tickvalue") <- tickvalue
+    }
+  }
+  if (isTRUE(add_tick_columns)) {
+    data <- .brf_add_fixed_tick_columns(data, ticksize = ticksize, tickvalue = tickvalue)
+  }
+  data
+}
+
+.brf_add_fixed_tick_columns <- function(data, ticksize, tickvalue) {
+  if (is.null(ticksize) || is.null(tickvalue)) {
+    return(data)
+  }
+  ticksize <- as.numeric(ticksize)[1]
+  tickvalue <- as.numeric(tickvalue)[1]
+  if (!is.finite(ticksize) || !is.finite(tickvalue)) {
+    return(data)
+  }
+  if (xts::is.xts(data)) {
+    if (!("TickSize" %in% colnames(data))) {
+      data <- cbind(data, TickSize = rep(ticksize, NROW(data)))
+    }
+    if (!("TickValue" %in% colnames(data))) {
+      data <- cbind(data, TickValue = rep(tickvalue, NROW(data)))
+    }
+    return(data)
+  }
+  if (is.data.frame(data)) {
+    if (!("TickSize" %in% names(data))) {
+      data$TickSize <- rep(ticksize, nrow(data))
+    }
+    if (!("TickValue" %in% names(data))) {
+      data$TickValue <- rep(tickvalue, nrow(data))
     }
   }
   data
@@ -769,7 +802,8 @@
     fees = 10,
     ticksize = 0.01,
     multiplier = 1,
-    tickvalue = NULL
+    tickvalue = NULL,
+    add_tick_columns = FALSE
   )
   attr(data, "subcategoria") <- "Juros Brasil"
   attr(data, "ticker_name") <- ticker

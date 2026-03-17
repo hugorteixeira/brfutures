@@ -323,6 +323,8 @@ test_that("get_brfut applies treatments", {
   expect_true(xts::is.xts(xts_result))
   expect_equal(NROW(xts_result), 1)
   expect_equal(as.numeric(xts_result$Open), 120000)
+  expect_equal(as.numeric(xts_result$TickSize), 5)
+  expect_equal(as.numeric(xts_result$TickValue), 1)
   expect_equal(attr(xts_result, "multiplier"), 0.2)
   expect_equal(attr(xts_result, "tickvalue"), 1)
   raw_df <- get_brfut("WINM24", treatment = "raw")
@@ -336,10 +338,14 @@ test_that("get_brfut applies treatments", {
     "low",
     "high",
     "close",
-    "settlement_price"
+    "settlement_price",
+    "TickSize",
+    "TickValue"
   ) %in% names(raw_df)))
   expect_equal(raw_df$open, 120000)
   expect_equal(raw_df$volume, 1000)
+  expect_equal(raw_df$TickSize, 5)
+  expect_equal(raw_df$TickValue, 1)
   standard_df <- get_brfut("WINM24", treatment = "standard")
   expect_equal(standard_df$open, 120000)
   standard_tbl <- get_brfut("WINM24", treatment = "standard_tibble")
