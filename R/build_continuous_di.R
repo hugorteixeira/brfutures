@@ -658,9 +658,9 @@ build_continuous_di <- function(data,
   #  attr(series, "categoria") <- "Futuro"
   # attr(series, "subcategoria") <- "Juros Brasil"
   #  attr(series, "risk_parity") <- "Azul"
-  #  attr(series, "fut_fees") <- 10
-  #  attr(series, "fut_slippage") <- 0.01
-  #  attr(series, "fut_multiplier") <- \1
+  #  attr(series, "fees") <- 10
+  #  attr(series, "slippage") <- 0.01
+  #  attr(series, "multiplier") <- \1
   # attr(series, "fonte") <- "Obter_b3_fut_cont"
   root <- paste0("DI1FUT_1D_", target_tenor, substr(toupper(tenor_unit), 1, 1), "BR_B")
   if (isTRUE(add_attrs)) {

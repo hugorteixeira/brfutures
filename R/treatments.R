@@ -634,13 +634,13 @@
 }
 
 .brf_add_futures_win <- function(data, ticker) {
-  attr(data, "fut_slippage") <- 0.01
-  attr(data, "fut_fees") <- 1
-  attr(data, "fut_tick_size") <- 5
-  attr(data, "fut_multiplier") <- 0.2
+  attr(data, "slippage") <- 0.01
+  attr(data, "fees") <- 1
+  attr(data, "ticksize") <- 5
+  attr(data, "multiplier") <- 0.2
 
-  attr_slippage <- attr(data, "fut_slippage")
-  attr_fees <- attr(data, "fut_fees")
+  attr_slippage <- attr(data, "slippage")
+  attr_fees <- attr(data, "fees")
   FinancialInstrument::currency("USD")
   FinancialInstrument::future(ticker,
     currency = "USD",
@@ -651,13 +651,13 @@
   return(data)
 }
 .brf_add_futures_wdo <- function(data, ticker) {
-  attr(data, "fut_slippage") <- 0.01
-  attr(data, "fut_fees") <- 1
-  attr(data, "fut_tick_size") <- 0.5
-  attr(data, "fut_multiplier") <- 10
+  attr(data, "slippage") <- 0.01
+  attr(data, "fees") <- 1
+  attr(data, "ticksize") <- 0.5
+  attr(data, "multiplier") <- 10
 
-  attr_slippage <- attr(data, "fut_slippage")
-  attr_fees <- attr(data, "fut_fees")
+  attr_slippage <- attr(data, "slippage")
+  attr_fees <- attr(data, "fees")
   FinancialInstrument::currency("USD")
   FinancialInstrument::future(ticker,
     currency = "USD",
@@ -668,13 +668,13 @@
   return(data)
 }
 .brf_add_futures_bit <- function(data, ticker) {
-  attr(data, "fut_slippage") <- 0.07
-  attr(data, "fut_fees") <- 10
-  attr(data, "fut_tick_size") <- 0.01
-  attr(data, "fut_multiplier") <- 450
+  attr(data, "slippage") <- 0.07
+  attr(data, "fees") <- 10
+  attr(data, "ticksize") <- 0.01
+  attr(data, "multiplier") <- 450
 
-  attr_slippage <- attr(data, "fut_slippage")
-  attr_fees <- attr(data, "fut_fees")
+  attr_slippage <- attr(data, "slippage")
+  attr_fees <- attr(data, "fees")
   FinancialInstrument::currency("USD")
   FinancialInstrument::future(ticker,
     currency = "USD",
@@ -685,13 +685,13 @@
   return(data)
 }
 .brf_add_futures_ind <- function(data, ticker) {
-  attr(data, "fut_slippage") <- 0.07
-  attr(data, "fut_fees") <- 10
-  attr(data, "fut_tick_size") <- 0.01
-  attr(data, "fut_multiplier") <- 450
+  attr(data, "slippage") <- 0.07
+  attr(data, "fees") <- 10
+  attr(data, "ticksize") <- 0.01
+  attr(data, "multiplier") <- 450
 
-  attr_slippage <- attr(data, "fut_slippage")
-  attr_fees <- attr(data, "fut_fees")
+  attr_slippage <- attr(data, "slippage")
+  attr_fees <- attr(data, "fees")
   FinancialInstrument::currency("USD")
   FinancialInstrument::future(ticker,
     currency = "USD",
@@ -704,13 +704,13 @@
   return(data)
 }
 .brf_add_futures_dol <- function(data, ticker) {
-  attr(data, "fut_slippage") <- 0.07
-  attr(data, "fut_fees") <- 10
-  attr(data, "fut_tick_size") <- 0.01
-  attr(data, "fut_multiplier") <- 450
+  attr(data, "slippage") <- 0.07
+  attr(data, "fees") <- 10
+  attr(data, "ticksize") <- 0.01
+  attr(data, "multiplier") <- 450
 
-  attr_slippage <- attr(data, "fut_slippage")
-  attr_fees <- attr(data, "fut_fees")
+  attr_slippage <- attr(data, "slippage")
+  attr_fees <- attr(data, "fees")
   FinancialInstrument::currency("USD")
   FinancialInstrument::future(ticker,
     currency = "USD",
@@ -728,14 +728,14 @@
   } else if (is.data.frame(data)) {
     data <- .brf_di_add_pu_columns(data)
   }
-  attr(data, "fut_slippage") <- 0.01
-  attr(data, "fut_fees") <- 10
-  attr(data, "fut_tick_size") <- 0.01
-  attr(data, "fut_multiplier") <- 1
+  attr(data, "slippage") <- 0.01
+  attr(data, "fees") <- 10
+  attr(data, "ticksize") <- 0.01
+  attr(data, "multiplier") <- 1
   attr(data, "subcategoria") <- "Juros Brasil"
   attr(data, "ticker_name") <- ticker
-  attr_slippage <- attr(data, "fut_slippage")
-  attr_fees <- attr(data, "fut_fees")
+  attr_slippage <- attr(data, "slippage")
+  attr_fees <- attr(data, "fees")
   FinancialInstrument::currency("USD")
   FinancialInstrument::future(ticker,
     currency = "USD",
@@ -747,13 +747,13 @@
   return(data)
 }
 .brf_add_futures_icf <- function(data, ticker) {
-  attr(data, "fut_slippage") <- 0.07
-  attr(data, "fut_fees") <- 10
-  attr(data, "fut_tick_size") <- 0.01
-  attr(data, "fut_multiplier") <- 450
+  attr(data, "slippage") <- 0.07
+  attr(data, "fees") <- 10
+  attr(data, "ticksize") <- 0.01
+  attr(data, "multiplier") <- 450
 
-  attr_slippage <- attr(data, "fut_slippage")
-  attr_fees <- attr(data, "fut_fees")
+  attr_slippage <- attr(data, "slippage")
+  attr_fees <- attr(data, "fees")
   print(str(data))
   FinancialInstrument::currency("USD")
   FinancialInstrument::future(ticker,
@@ -766,13 +766,13 @@
   return(data)
 }
 .brf_add_futures_ccm <- function(data, ticker) {
-  attr(data, "fut_slippage") <- 0.07
-  attr(data, "fut_fees") <- 10
-  attr(data, "fut_tick_size") <- 0.01
-  attr(data, "fut_multiplier") <- 450
+  attr(data, "slippage") <- 0.07
+  attr(data, "fees") <- 10
+  attr(data, "ticksize") <- 0.01
+  attr(data, "multiplier") <- 450
 
-  attr_slippage <- attr(data, "fut_slippage")
-  attr_fees <- attr(data, "fut_fees")
+  attr_slippage <- attr(data, "slippage")
+  attr_fees <- attr(data, "fees")
   FinancialInstrument::currency("USD")
   FinancialInstrument::future(ticker,
     currency = "USD",
@@ -785,13 +785,13 @@
   return(data)
 }
 .brf_add_futures_bgi <- function(data, ticker) {
-  attr(data, "fut_slippage") <- 0.35
-  attr(data, "fut_fees") <- 14
-  attr(data, "fut_tick_size") <- 0.05
-  attr(data, "fut_multiplier") <- 330
+  attr(data, "slippage") <- 0.35
+  attr(data, "fees") <- 14
+  attr(data, "ticksize") <- 0.05
+  attr(data, "multiplier") <- 330
 
-  attr_slippage <- attr(data, "fut_slippage")
-  attr_fees <- attr(data, "fut_fees")
+  attr_slippage <- attr(data, "slippage")
+  attr_fees <- attr(data, "fees")
   FinancialInstrument::currency("USD")
   FinancialInstrument::future(ticker,
     currency = "USD",
@@ -804,13 +804,13 @@
   return(data)
 }
 .brf_add_futures_generic <- function(data, ticker) {
-  attr(data, "fut_slippage") <- 0.02
-  attr(data, "fut_fees") <- 10
-  attr(data, "fut_tick_size") <- 0.01
-  attr(data, "fut_multiplier") <- 1
+  attr(data, "slippage") <- 0.02
+  attr(data, "fees") <- 10
+  attr(data, "ticksize") <- 0.01
+  attr(data, "multiplier") <- 1
 
-  attr_slippage <- attr(data, "fut_slippage")
-  attr_fees <- attr(data, "fut_fees")
+  attr_slippage <- attr(data, "slippage")
+  attr_fees <- attr(data, "fees")
   FinancialInstrument::currency("USD")
   FinancialInstrument::future(ticker,
     currency = "USD",
