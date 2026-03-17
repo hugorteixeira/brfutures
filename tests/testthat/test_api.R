@@ -323,6 +323,8 @@ test_that("get_brfut applies treatments", {
   expect_true(xts::is.xts(xts_result))
   expect_equal(NROW(xts_result), 1)
   expect_equal(as.numeric(xts_result$Open), 120000)
+  expect_equal(attr(xts_result, "multiplier"), 0.2)
+  expect_equal(attr(xts_result, "tickvalue"), 1)
   raw_df <- get_brfut("WINM24", treatment = "raw")
   expect_true(all(c(
     "open_interest",
@@ -530,6 +532,9 @@ test_that("get_brfut xts treatments attach DI PU columns", {
   expect_true(all(is.finite(as.matrix(drop0_xts[, pu_cols]))))
   expect_length(attr(locf_xts, "maturity"), 1)
   expect_length(attr(drop0_xts, "maturity"), 1)
+  expect_equal(attr(locf_xts, "multiplier"), 1)
+  expect_null(attr(locf_xts, "tickvalue", exact = TRUE))
+  expect_null(attr(drop0_xts, "tickvalue", exact = TRUE))
 })
 
 test_that("corrupted root cache is rebuilt automatically", {

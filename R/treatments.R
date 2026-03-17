@@ -633,11 +633,34 @@
   return(data)
 }
 
+.brf_set_futures_attrs <- function(data,
+                                   slippage,
+                                   fees,
+                                   ticksize,
+                                   multiplier,
+                                   tickvalue = multiplier * ticksize) {
+  attr(data, "slippage") <- slippage
+  attr(data, "fees") <- fees
+  attr(data, "ticksize") <- ticksize
+  attr(data, "multiplier") <- multiplier
+  if (xts::is.xts(data)) {
+    if (is.null(tickvalue)) {
+      attr(data, "tickvalue") <- NULL
+    } else {
+      attr(data, "tickvalue") <- tickvalue
+    }
+  }
+  data
+}
+
 .brf_add_futures_win <- function(data, ticker) {
-  attr(data, "slippage") <- 0.01
-  attr(data, "fees") <- 1
-  attr(data, "ticksize") <- 5
-  attr(data, "multiplier") <- 0.2
+  data <- .brf_set_futures_attrs(
+    data,
+    slippage = 0.01,
+    fees = 1,
+    ticksize = 5,
+    multiplier = 0.2
+  )
 
   attr_slippage <- attr(data, "slippage")
   attr_fees <- attr(data, "fees")
@@ -651,10 +674,13 @@
   return(data)
 }
 .brf_add_futures_wdo <- function(data, ticker) {
-  attr(data, "slippage") <- 0.01
-  attr(data, "fees") <- 1
-  attr(data, "ticksize") <- 0.5
-  attr(data, "multiplier") <- 10
+  data <- .brf_set_futures_attrs(
+    data,
+    slippage = 0.01,
+    fees = 1,
+    ticksize = 0.5,
+    multiplier = 10
+  )
 
   attr_slippage <- attr(data, "slippage")
   attr_fees <- attr(data, "fees")
@@ -668,10 +694,13 @@
   return(data)
 }
 .brf_add_futures_bit <- function(data, ticker) {
-  attr(data, "slippage") <- 0.07
-  attr(data, "fees") <- 10
-  attr(data, "ticksize") <- 0.01
-  attr(data, "multiplier") <- 450
+  data <- .brf_set_futures_attrs(
+    data,
+    slippage = 0.07,
+    fees = 10,
+    ticksize = 0.01,
+    multiplier = 450
+  )
 
   attr_slippage <- attr(data, "slippage")
   attr_fees <- attr(data, "fees")
@@ -685,10 +714,13 @@
   return(data)
 }
 .brf_add_futures_ind <- function(data, ticker) {
-  attr(data, "slippage") <- 0.07
-  attr(data, "fees") <- 10
-  attr(data, "ticksize") <- 0.01
-  attr(data, "multiplier") <- 450
+  data <- .brf_set_futures_attrs(
+    data,
+    slippage = 0.07,
+    fees = 10,
+    ticksize = 0.01,
+    multiplier = 450
+  )
 
   attr_slippage <- attr(data, "slippage")
   attr_fees <- attr(data, "fees")
@@ -704,10 +736,13 @@
   return(data)
 }
 .brf_add_futures_dol <- function(data, ticker) {
-  attr(data, "slippage") <- 0.07
-  attr(data, "fees") <- 10
-  attr(data, "ticksize") <- 0.01
-  attr(data, "multiplier") <- 450
+  data <- .brf_set_futures_attrs(
+    data,
+    slippage = 0.07,
+    fees = 10,
+    ticksize = 0.01,
+    multiplier = 450
+  )
 
   attr_slippage <- attr(data, "slippage")
   attr_fees <- attr(data, "fees")
@@ -728,10 +763,14 @@
   } else if (is.data.frame(data)) {
     data <- .brf_di_add_pu_columns(data)
   }
-  attr(data, "slippage") <- 0.01
-  attr(data, "fees") <- 10
-  attr(data, "ticksize") <- 0.01
-  attr(data, "multiplier") <- 1
+  data <- .brf_set_futures_attrs(
+    data,
+    slippage = 0.01,
+    fees = 10,
+    ticksize = 0.01,
+    multiplier = 1,
+    tickvalue = NULL
+  )
   attr(data, "subcategoria") <- "Juros Brasil"
   attr(data, "ticker_name") <- ticker
   attr_slippage <- attr(data, "slippage")
@@ -747,10 +786,13 @@
   return(data)
 }
 .brf_add_futures_icf <- function(data, ticker) {
-  attr(data, "slippage") <- 0.07
-  attr(data, "fees") <- 10
-  attr(data, "ticksize") <- 0.01
-  attr(data, "multiplier") <- 450
+  data <- .brf_set_futures_attrs(
+    data,
+    slippage = 0.07,
+    fees = 10,
+    ticksize = 0.01,
+    multiplier = 450
+  )
 
   attr_slippage <- attr(data, "slippage")
   attr_fees <- attr(data, "fees")
@@ -766,10 +808,13 @@
   return(data)
 }
 .brf_add_futures_ccm <- function(data, ticker) {
-  attr(data, "slippage") <- 0.07
-  attr(data, "fees") <- 10
-  attr(data, "ticksize") <- 0.01
-  attr(data, "multiplier") <- 450
+  data <- .brf_set_futures_attrs(
+    data,
+    slippage = 0.07,
+    fees = 10,
+    ticksize = 0.01,
+    multiplier = 450
+  )
 
   attr_slippage <- attr(data, "slippage")
   attr_fees <- attr(data, "fees")
@@ -785,10 +830,13 @@
   return(data)
 }
 .brf_add_futures_bgi <- function(data, ticker) {
-  attr(data, "slippage") <- 0.35
-  attr(data, "fees") <- 14
-  attr(data, "ticksize") <- 0.05
-  attr(data, "multiplier") <- 330
+  data <- .brf_set_futures_attrs(
+    data,
+    slippage = 0.35,
+    fees = 14,
+    ticksize = 0.05,
+    multiplier = 330
+  )
 
   attr_slippage <- attr(data, "slippage")
   attr_fees <- attr(data, "fees")
@@ -804,10 +852,13 @@
   return(data)
 }
 .brf_add_futures_generic <- function(data, ticker) {
-  attr(data, "slippage") <- 0.02
-  attr(data, "fees") <- 10
-  attr(data, "ticksize") <- 0.01
-  attr(data, "multiplier") <- 1
+  data <- .brf_set_futures_attrs(
+    data,
+    slippage = 0.02,
+    fees = 10,
+    ticksize = 0.01,
+    multiplier = 1
+  )
 
   attr_slippage <- attr(data, "slippage")
   attr_fees <- attr(data, "fees")
