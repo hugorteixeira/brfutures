@@ -21,7 +21,8 @@ Imports:
     rvest,
     xts,
     tibble,
-    bizdays
+    bizdays,
+    positionsizer
 Suggests:
     testthat (>= 3.2.1),
     DBI,

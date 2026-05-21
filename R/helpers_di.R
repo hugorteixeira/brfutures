@@ -302,37 +302,15 @@ calculate_futures_di_notional <- function(rates,
                                           snap_to_tick = TRUE,
                                           round_pu = TRUE,
                                           rule_change_date = as.Date("2025-08-25")) {
-  cal <- .brf_di_resolve_calendar(cal)
-  basis_date <- as.Date(basis_date)
-
-  tenor <- .brf_di_resolve_tenor(
+  positionsizer::ps_di_rate_to_pu(
+    rates = rates,
     maturity_date = maturity_date,
     basis_date = basis_date,
     cal = cal,
-    include_basis_day = include_basis_day
-  )
-  n <- tenor$valid_days
-  mm <- tenor$months_bucket
-
-  rates <- as.numeric(rates)
-  if (any(!is.finite(rates) | rates <= -100)) {
-    stop("'rates' must be finite and greater than -100%.", call. = FALSE)
-  }
-  if (snap_to_tick) {
-    rates <- .brf_di_snap_di_rates(rates, mm, basis_date, rule_change_date)
-  }
-
-  pu <- .brf_di_pu_from_rate(rates, n, round_pu = round_pu)
-
-  tick_size <- .brf_di_get_tick_size(mm, basis_date, rule_change_date)
-  deriv_pp <- -(n / 252) * pu / (100 * (1 + rates / 100))
-  tick_value <- abs(deriv_pp) * tick_size
-
-  list(
-    valid_days = as.integer(n),
-    pu = as.numeric(pu),
-    tick_size = tick_size,
-    tick_value = as.numeric(tick_value)
+    include_basis_day = include_basis_day,
+    snap_to_tick = snap_to_tick,
+    round_pu = round_pu,
+    rule_change_date = rule_change_date
   )
 }
 
@@ -349,38 +327,14 @@ calculate_futures_di_rates <- function(pu,
                                        include_basis_day = TRUE,
                                        snap_to_tick = TRUE,
                                        rule_change_date = as.Date("2025-08-25")) {
-  cal <- .brf_di_resolve_calendar(cal)
-  basis_date <- as.Date(basis_date)
-
-  tenor <- .brf_di_resolve_tenor(
+  positionsizer::ps_di_pu_to_rate(
+    pu = pu,
     maturity_date = maturity_date,
     basis_date = basis_date,
     cal = cal,
     include_basis_day = include_basis_day,
-    allow_coercion = TRUE
-  )
-  n <- tenor$valid_days
-  mm <- tenor$months_bucket
-
-  pu <- as.numeric(pu)
-  if (any(!is.finite(pu) | pu <= 0)) {
-    stop("'pu' must be positive and finite.", call. = FALSE)
-  }
-
-  rates <- .brf_di_rate_from_pu(pu, n)
-  if (snap_to_tick) {
-    rates <- .brf_di_snap_di_rates(rates, mm, basis_date, rule_change_date)
-  }
-
-  tick_size <- .brf_di_get_tick_size(mm, basis_date, rule_change_date)
-  deriv_pp <- -(n / 252) * pu / (100 * (1 + rates / 100))
-  tick_value <- abs(deriv_pp) * tick_size
-
-  list(
-    valid_days = as.integer(n),
-    rates = as.numeric(rates),
-    tick_size = tick_size,
-    tick_value = as.numeric(tick_value)
+    snap_to_tick = snap_to_tick,
+    rule_change_date = rule_change_date
   )
 }
 

@@ -27,6 +27,7 @@
 - 🔄 **Dual source support**: HTML before the cutover, BVBG XML after it
 - 🗂️ **Smart caching**: Skip "no data" HTML/XML/ZIP days immediately
 - 🔄 **Incremental merge**: Add fresh data to cached RDS files incrementally
+- 📐 **DI helpers**: Delegate rate/PU math to `positionsizer`
 - 🚀 **Performance**: Keep large refreshes fast with efficient data handling
 
 ---
