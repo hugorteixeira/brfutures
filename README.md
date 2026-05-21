@@ -30,6 +30,11 @@
 - 📐 **DI helpers**: Delegate rate/PU math to `positionsizer`
 - 🚀 **Performance**: Keep large refreshes fast with efficient data handling
 
+`brfutures` still owns B3 futures data download, cache, treatments, maturity
+resolution, and continuous-contract construction. The public DI conversion
+helpers remain available here for compatibility, but the formula itself is
+centralized in `positionsizer`.
+
 ---
 
 ## 📦 Installation
