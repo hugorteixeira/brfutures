@@ -34,7 +34,8 @@ month codes (e.g. `c("F", "G", "H")`) to restrict eligible contracts.}
 \item{cal}{Optional `bizdays` calendar; defaults to the ANBIMA calendar used
 by the DI helpers.}
 
-\item{include_pnl}{When `TRUE`, adds P&L, return, adjusted OHLC, and index columns.}
+\item{include_pnl}{When `TRUE`, adds PU-mark approximation P&L, return,
+adjusted OHLC, and index columns.}
 
 \item{add_attrs}{When `TRUE` (default), enrich the series with futures
 metadata via `.brf_add_futures_attrs()`. Set to `FALSE` to skip.}
@@ -48,10 +49,14 @@ An `xts` object when a single tenor is supplied, or a named list of
   roll schedule and active contracts.
 }
 \description{
-DI futures are quoted in annualized rates, but daily variation margin is
-applied to the contract's notional (PU). This helper stitches a continuous
+DI futures are quoted in annualized rates, while fills and risk are often
+represented through the contract's notional price (PU). This helper stitches a continuous
 DI series by always selecting the contract whose business-days-to-maturity
 is closest **above** a target horizon (e.g. 1 year ??? 252 business days).
 It augments the selected rows with PU columns so the resulting object can be
-used directly for backtesting in notional terms.
+used directly for backtesting in notional terms. When `include_pnl = TRUE`,
+the added `PU_pnl`/return fields are continuous-series approximations based
+on PU marks and roll adjustments; they are not official B3 DI variation
+margin. Use `get_brfut_di_adjustments()` or the `di_adjustment_points`
+treatment when settled DI cash PnL is required.
 }

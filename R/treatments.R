@@ -572,6 +572,11 @@
   cleaned[keep, , drop = FALSE]
 }
 
+.brf_agg_di_adjustments_treatment <- function(df, ...) {
+  cleaned <- .brf_agg_standard_treatment(df, ...)
+  .brf_add_di_adjustment_columns(cleaned)
+}
+
 .brf_resolve_agg_treatment <- function(treatment) {
   if (is.function(treatment)) {
     return(treatment)
@@ -589,6 +594,12 @@
     }
     if (key == "clean_data_drop0_tibble") {
       return(function(df, ...) tibble::as_tibble(.brf_agg_clean_data_drop0_treatment(df, ...)))
+    }
+    if (key == "di_adjustments") {
+      return(.brf_agg_di_adjustments_treatment)
+    }
+    if (key == "di_adjustments_tibble") {
+      return(function(df, ...) tibble::as_tibble(.brf_agg_di_adjustments_treatment(df, ...)))
     }
     if (key == "standard") {
       return(.brf_agg_standard_treatment)

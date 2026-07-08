@@ -440,6 +440,52 @@ test_that("DI futures add PU notional columns", {
   expect_equal(augmented$TickValue, expected_tick_value)
 })
 
+test_that("DI official adjustments use corrected or previous adjusted quote as base", {
+  cache <- tempfile("brf-cache-")
+  dir.create(cache, recursive = TRUE, showWarnings = FALSE)
+  old_opt <- getOption("brfutures.cache_dir")
+  on.exit({
+    options(brfutures.cache_dir = old_opt)
+    unlink(cache, recursive = TRUE)
+  }, add = TRUE)
+  options(brfutures.cache_dir = cache)
+
+  rows <- data.frame(
+    date = as.Date(c("2023-11-10", "2025-12-16", "2026-01-02")),
+    root = "DI1",
+    contract_code = c("DI1F26", "DI1F26", "DI1F41"),
+    ticker = c("DI1F26", "DI1F26", "DI1F41"),
+    source = c("html", "xml", "xml"),
+    open = c(10.61, 14.903, 13.00),
+    low = c(10.45, 14.903, 13.00),
+    high = c(10.61, 14.913, 13.00),
+    close = c(10.505, 14.903, 13.00),
+    settlement_price = c(80708.11, 99395.45, 15122.89),
+    previous_settlement = c(80514.64, 99395.44, NA),
+    corrected_settlement = c(80551.28, NA, NA),
+    stringsAsFactors = FALSE
+  )
+  saveRDS(rows, file.path(cache, "aggregate.rds"))
+
+  out <- get_brfut_di_adjustments("DI1F26")
+  expect_equal(nrow(out), 2)
+  expect_equal(out$di_adjustment_base, c(80551.28, 99395.44))
+  expect_equal(out$di_adjustment_points, c(156.83, 0.01), tolerance = 1e-8)
+  expect_equal(out$di_adjustment_quality, c(
+    "official_corrected_settlement",
+    "official_previous_adjusted_quote"
+  ))
+  expect_true(all(out$di_adjustment_is_official))
+
+  all_di <- get_brfut_agg(root = "DI1", treatment = "di_adjustments")
+  missing <- all_di[all_di$ticker == "DI1F41", ]
+  expect_true(is.na(missing$di_adjustment_points))
+  expect_equal(missing$di_adjustment_quality, "missing_base")
+
+  compact <- get_brfut_agg(root = "DI1")
+  expect_false("settlement_price" %in% names(compact))
+})
+
 test_that("DI xts treatment keeps PU columns", {
   skip_if_not_installed("bizdays")
   dates <- as.Date(c("2024-01-02", "2024-01-08"))

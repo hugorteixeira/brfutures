@@ -90,7 +90,21 @@ get_brfut_agg(start = "2024-03-01", end = "2024-04-01")
 
 # Drop rows where OHLC/volume fields are zero or missing
 get_brfut_agg(treatment = "clean_data_drop0")
+
+# DI1 daily adjustments need official settlement fields, not naive PU diffs.
+# This keeps `settlement_price` and computes the B3 adjustment base:
+get_brfut_di_adjustments("DI1F26", start = "2023-11-10", end = "2024-01-10")
 ```
+
+For DI1, `di_adjustment_points` is calculated as:
+
+```text
+settlement_price - coalesce(corrected_settlement, previous_settlement)
+```
+
+Legacy HTML rows provide `corrected_settlement`; BVBG XML rows provide
+`PrvsAdjstdQt`, parsed as `previous_settlement`, which is already the previous
+adjusted quote for that report. Do not correct the XML value a second time.
 
 ### Optional BVBG XML settings
 ```r
