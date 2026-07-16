@@ -96,15 +96,46 @@ get_brfut_agg(treatment = "clean_data_drop0")
 get_brfut_di_adjustments("DI1F26", start = "2023-11-10", end = "2024-01-10")
 ```
 
-For DI1, `di_adjustment_points` is calculated as:
+The DI1 adjustment contract deliberately keeps the exchange fields separate:
+
+| `brfutures` field | Meaning |
+| --- | --- |
+| `settlement_price` | current B3 settlement price in PU |
+| `previous_settlement` | prior settlement already updated by the daily carry factor |
+| `corrected_settlement` | same-row current carry-corrected settlement reference; diagnostic, not the current adjustment base |
+| `change_points` | B3-reported current variation in PU points when the source publishes it |
+| `di_adjustment_base` | canonical base used to reconcile the current adjustment |
+| `di_adjustment_points` | canonical per-contract current adjustment in PU points |
+
+For legacy HTML DI1 rows, `di_adjustment_points` prefers the B3-reported
+`change_points`. When that field is unavailable (including BVBG XML rows), the
+fallback is:
 
 ```text
-settlement_price - coalesce(corrected_settlement, previous_settlement)
+settlement_price - previous_settlement
 ```
 
-Legacy HTML rows provide `corrected_settlement`; BVBG XML rows provide
-`PrvsAdjstdQt`, parsed as `previous_settlement`, which is already the previous
-adjusted quote for that report. Do not correct the XML value a second time.
+`previous_settlement` is therefore the normal `di_adjustment_base`. If it is
+missing but `settlement_price` and `change_points` are both present, the base
+can be reconstructed as `settlement_price - change_points`. The same-row
+`corrected_settlement` must never replace that base.
+
+Settlement-scale typos are repaired only when another same-row DI settlement
+field proves a plausible power-of-ten mismatch. Values at or slightly above
+100,000 are valid near maturity and must not be capped merely because of their
+size.
+
+This split follows the B3 contract: DI1 is quoted as an annualized rate, its
+economic price is PU, and positions receive daily adjustments as the PU is
+updated by the DI carry factor. See the official
+[DI1 contract specification](https://www.b3.com.br/pt_br/produtos-e-servicos/negociacao/juros/futuro-de-taxa-media-de-depositos-interfinanceiros-de-um-dia.htm)
+and the current
+[B3 futures pricing manual](https://www.b3.com.br/data/files/19/52/89/BE/85C589100A29E189AC094EA8/Manual%20de%20Aprecamento%20-%20Futuros%20-%20V58.pdf).
+
+Ownership is also explicit: `brfutures` parses and normalizes the B3 fields;
+`finharvest` materializes and routes them; `positionsizer` owns pure DI
+rate/PU and adjustment P&L mathematics; a portfolio or backtest engine applies
+the resulting adjustment exactly once per contract and trading session.
 
 ### Optional BVBG XML settings
 ```r
