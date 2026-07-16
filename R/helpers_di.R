@@ -267,7 +267,17 @@
 #' @return A `Date` with the contract maturity.
 #' @export
 di_maturity_from_ticker <- function(ticker, cal = NULL) {
-  stopifnot(is.character(ticker), length(ticker) == 1)
+  if (!is.character(ticker) || length(ticker) != 1L || is.na(ticker)) {
+    stop("'ticker' must be one non-missing DI1 contract ticker.", call. = FALSE)
+  }
+  ticker <- toupper(trimws(ticker))
+  if (!grepl("^DI1[A-Z][0-9]{2}$", ticker)) {
+    stop(
+      "Cannot parse DI1 contract ticker: ", ticker,
+      ". Expected an explicit maturity such as DI1F27.",
+      call. = FALSE
+    )
+  }
   cal <- .brf_di_resolve_calendar(cal)
 
   month_code <- substr(ticker, 4, 4)

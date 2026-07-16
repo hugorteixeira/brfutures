@@ -552,6 +552,15 @@ test_that("DI PU ingestion and continuous preparation reject zero quote rows", {
   expect_false(identical(prepared$PU_close, 3))
 })
 
+test_that("DI maturity parsing requires an explicit contract without coercion warnings", {
+  skip_if_not_installed("bizdays")
+
+  expect_silent(maturity <- di_maturity_from_ticker("di1f27"))
+  expect_s3_class(maturity, "Date")
+  expect_error(di_maturity_from_ticker("DI1FUT"), "Expected an explicit maturity")
+  expect_error(di_maturity_from_ticker(NA_character_), "one non-missing")
+})
+
 test_that("DI xts treatment keeps PU columns", {
   skip_if_not_installed("bizdays")
   dates <- as.Date(c("2024-01-02", "2024-01-08"))
