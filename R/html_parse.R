@@ -1,5 +1,5 @@
 .brf_parser_version <- function() {
-  7L
+  8L
 }
 
 .brf_file_has_no_data_message <- function(path) {
@@ -673,6 +673,7 @@
   df$ticker[add_prefix] <- paste0(root_norm, df$ticker[add_prefix])
   df$ticker[!valid_codes] <- NA_character_
   df <- .brf_coalesce_duplicate_columns(df, prefer_large = "settlement_price")
+  df <- .brf_repair_di_settlement_scale(df)
   if (length(header_map)) {
     missing_headers <- setdiff(names(df), names(header_map))
     if (length(missing_headers)) {

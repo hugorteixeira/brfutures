@@ -246,7 +246,33 @@
 
 .brf_parsed_is_current <- function(df) {
   version <- attr(df, "brf_parser_version", exact = TRUE)
-  !is.null(version) && identical(version, .brf_parser_version())
+  if (!is.null(version) && identical(version, .brf_parser_version())) {
+    return(TRUE)
+  }
+
+  # Parser v8 only added the relational DI settlement-scale repair. Keep v7
+  # files that the new repair would not change, while forcing the affected
+  # bulletin(s) through the parser again instead of reparsing the full history.
+  if (identical(version, 7L)) {
+    repaired <- .brf_repair_di_settlement_scale(df)
+    settlement_cols <- intersect(
+      c("settlement_price", "previous_settlement", "corrected_settlement"),
+      names(df)
+    )
+    if (!length(settlement_cols)) {
+      return(TRUE)
+    }
+    unchanged <- vapply(settlement_cols, function(col) {
+      isTRUE(all.equal(
+        suppressWarnings(as.numeric(df[[col]])),
+        suppressWarnings(as.numeric(repaired[[col]])),
+        check.attributes = FALSE
+      ))
+    }, logical(1))
+    return(all(unchanged))
+  }
+
+  FALSE
 }
 
 .brf_save_parsed_day <- function(root, date, data) {

@@ -125,9 +125,22 @@ build_continuous_di <- function(data,
       }
     })
   }
-  if (!("PU_close" %in% names(data))) {
-    data <- .brf_di_add_pu_columns(data)
+  rate_cols <- intersect(c("open", "high", "low", "close"), names(data))
+  if (length(rate_cols) != 4L) {
+    stop("DI continuous data requires open/high/low/close rate columns.", call. = FALSE)
   }
+  rate_matrix <- do.call(cbind, lapply(rate_cols, function(rate_col) {
+    suppressWarnings(as.numeric(data[[rate_col]]))
+  }))
+  valid_quote <- rowSums(is.finite(rate_matrix)) == length(rate_cols) &
+    rowSums(rate_matrix != 0, na.rm = TRUE) == length(rate_cols)
+  data <- data[valid_quote, , drop = FALSE]
+  if (!nrow(data)) {
+    stop("No valid DI OHLC quotes available for the continuous series.", call. = FALSE)
+  }
+  # Recompute from the canonical rate OHLC even when legacy PU columns are
+  # present, because older caches stored PU_high/PU_low with inverted meaning.
+  data <- .brf_di_add_pu_columns(data)
   cal <- .brf_di_resolve_calendar(cal)
   data$valid_days <- .brf_di_safe_valid_days(data$date, data$maturity, cal, include_basis_day = TRUE)
   data$month_code <- .brf_extract_month_code(data$ticker, root_main)

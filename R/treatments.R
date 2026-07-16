@@ -502,6 +502,7 @@
     numeric_cols <- names(out)[numeric_idx]
     out[numeric_cols] <- lapply(out[numeric_cols], .brf_pt_number)
   }
+  out <- .brf_repair_di_settlement_scale(out)
   out
 }
 

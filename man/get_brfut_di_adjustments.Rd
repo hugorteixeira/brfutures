@@ -27,9 +27,9 @@ A data frame with official settlement fields and DI adjustment
   columns.
 }
 \description{
-This helper returns B3 settlement fields in a DI1-safe shape. For legacy HTML
-rows, `di_adjustment_base` uses `corrected_settlement`. For BVBG XML rows,
-where the parser maps `PrvsAdjstdQt` to `previous_settlement`,
-`di_adjustment_base` uses `previous_settlement` directly and does not apply a
-second carry/correction.
+This helper returns B3 settlement fields in a DI1-safe shape. Legacy HTML
+rows use the exchange-reported `change_points`; when that field is absent,
+the adjustment is `settlement_price - previous_settlement`. The same-row
+`corrected_settlement` is the same-row carry-corrected settlement reference
+and is never the base of the current day's adjustment.
 }

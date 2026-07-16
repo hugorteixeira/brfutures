@@ -485,8 +485,9 @@ ohlc_rates_to_pu_xts <- function(x,
   }
 
   PU_o <- .brf_di_pu_from_rate(r_open, n_vec, round_pu = round_pu)
-  PU_h <- .brf_di_pu_from_rate(r_high, n_vec, round_pu = round_pu)
-  PU_l <- .brf_di_pu_from_rate(r_low, n_vec, round_pu = round_pu)
+  # Rate and PU move inversely: the highest PU comes from the lowest rate.
+  PU_h <- .brf_di_pu_from_rate(r_low, n_vec, round_pu = round_pu)
+  PU_l <- .brf_di_pu_from_rate(r_high, n_vec, round_pu = round_pu)
   PU_c <- .brf_di_pu_from_rate(r_close, n_vec, round_pu = round_pu)
 
   xts::xts(
@@ -563,8 +564,9 @@ di_ohlc_to_pu_augmented_xts <- function(x,
   }
 
   PU_o <- .brf_di_pu_from_rate(r_open, n_vec, round_pu = round_pu)
-  PU_h <- .brf_di_pu_from_rate(r_high, n_vec, round_pu = round_pu)
-  PU_l <- .brf_di_pu_from_rate(r_low, n_vec, round_pu = round_pu)
+  # Rate and PU move inversely: the highest PU comes from the lowest rate.
+  PU_h <- .brf_di_pu_from_rate(r_low, n_vec, round_pu = round_pu)
+  PU_l <- .brf_di_pu_from_rate(r_high, n_vec, round_pu = round_pu)
   PU_c <- .brf_di_pu_from_rate(r_close, n_vec, round_pu = round_pu)
 
   base_cols <- cbind(
@@ -587,8 +589,8 @@ di_ohlc_to_pu_augmented_xts <- function(x,
 
   if (include_diagnostics || snap_rates_back) {
     adjOpen <- .brf_di_rate_from_pu(PU_o, n_vec)
-    adjHigh <- .brf_di_rate_from_pu(PU_h, n_vec)
-    adjLow <- .brf_di_rate_from_pu(PU_l, n_vec)
+    adjHigh <- .brf_di_rate_from_pu(PU_l, n_vec)
+    adjLow <- .brf_di_rate_from_pu(PU_h, n_vec)
     adjClose <- .brf_di_rate_from_pu(PU_c, n_vec)
 
     if (snap_rates_back) {
@@ -599,8 +601,8 @@ di_ohlc_to_pu_augmented_xts <- function(x,
     }
 
     adjPU_o <- .brf_di_pu_from_rate(adjOpen, n_vec, round_pu = round_pu)
-    adjPU_h <- .brf_di_pu_from_rate(adjHigh, n_vec, round_pu = round_pu)
-    adjPU_l <- .brf_di_pu_from_rate(adjLow, n_vec, round_pu = round_pu)
+    adjPU_h <- .brf_di_pu_from_rate(adjLow, n_vec, round_pu = round_pu)
+    adjPU_l <- .brf_di_pu_from_rate(adjHigh, n_vec, round_pu = round_pu)
     adjPU_c <- .brf_di_pu_from_rate(adjClose, n_vec, round_pu = round_pu)
 
     if (include_diagnostics) {
@@ -668,13 +670,21 @@ di_ohlc_to_pu_augmented_xts <- function(x,
     USE.NAMES = FALSE
   )
   to_numeric <- function(col) as.numeric(data[[col]])
-  data$PU_open <- .brf_di_pu_from_rate(to_numeric(open_col), valid_days, round_pu)
-  data$PU_high <- .brf_di_pu_from_rate(to_numeric(high_col), valid_days, round_pu)
-  data$PU_low <- .brf_di_pu_from_rate(to_numeric(low_col), valid_days, round_pu)
-  data$PU_close <- .brf_di_pu_from_rate(to_numeric(close_col), valid_days, round_pu)
+  rate_open <- to_numeric(open_col)
+  rate_high <- to_numeric(high_col)
+  rate_low <- to_numeric(low_col)
+  rate_close <- to_numeric(close_col)
+  rate_open[!is.finite(rate_open) | rate_open == 0] <- NA_real_
+  rate_high[!is.finite(rate_high) | rate_high == 0] <- NA_real_
+  rate_low[!is.finite(rate_low) | rate_low == 0] <- NA_real_
+  rate_close[!is.finite(rate_close) | rate_close == 0] <- NA_real_
+  data$PU_open <- .brf_di_pu_from_rate(rate_open, valid_days, round_pu)
+  data$PU_high <- .brf_di_pu_from_rate(rate_low, valid_days, round_pu)
+  data$PU_low <- .brf_di_pu_from_rate(rate_high, valid_days, round_pu)
+  data$PU_close <- .brf_di_pu_from_rate(rate_close, valid_days, round_pu)
   data$TickSize <- as.numeric(tick_size)
   data$TickValue <- .brf_di_tick_value_from_close(
-    to_numeric(close_col),
+    rate_close,
     valid_days,
     tick_size
   )
@@ -746,6 +756,7 @@ di_ohlc_to_pu_augmented_xts <- function(x,
       return(NULL)
     }
     rates <- as.numeric(x[, col_name])
+    rates[!is.finite(rates) | rates == 0] <- NA_real_
     .brf_di_pu_from_rate(rates, valid_days, round_pu = TRUE)
   }
   build_tick_value <- function() {
@@ -753,13 +764,14 @@ di_ohlc_to_pu_augmented_xts <- function(x,
       return(NULL)
     }
     rates <- as.numeric(x[, "Close"])
+    rates[!is.finite(rates) | rates == 0] <- NA_real_
     .brf_di_tick_value_from_close(rates, valid_days, tick_size)
   }
 
   additions <- list(
     PU_open = build_pu("Open"),
-    PU_high = build_pu("High"),
-    PU_low = build_pu("Low"),
+    PU_high = build_pu("Low"),
+    PU_low = build_pu("High"),
     PU_close = build_pu("Close"),
     TickSize = as.numeric(tick_size),
     TickValue = build_tick_value()

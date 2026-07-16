@@ -425,6 +425,15 @@ test_that("DI futures add PU notional columns", {
     augmented$PU_close,
     round(1e5 / (1 + di_rates$close / 100)^(valid_days / 252), 2)
   )
+  expect_equal(
+    augmented$PU_high,
+    round(1e5 / (1 + di_rates$low / 100)^(valid_days / 252), 2)
+  )
+  expect_equal(
+    augmented$PU_low,
+    round(1e5 / (1 + di_rates$high / 100)^(valid_days / 252), 2)
+  )
+  expect_true(all(augmented$PU_high >= augmented$PU_low))
   months_bucket <- brfutures:::`.brf_di_months_between_floor`(di_rates$date, di_rates$maturity)
   expected_tick <- mapply(
     brfutures:::`.brf_di_get_tick_size`,
@@ -440,7 +449,7 @@ test_that("DI futures add PU notional columns", {
   expect_equal(augmented$TickValue, expected_tick_value)
 })
 
-test_that("DI official adjustments use corrected or previous adjusted quote as base", {
+test_that("DI official adjustments use reported points or previous adjusted quote", {
   cache <- tempfile("brf-cache-")
   dir.create(cache, recursive = TRUE, showWarnings = FALSE)
   old_opt <- getOption("brfutures.cache_dir")
@@ -451,28 +460,29 @@ test_that("DI official adjustments use corrected or previous adjusted quote as b
   options(brfutures.cache_dir = cache)
 
   rows <- data.frame(
-    date = as.Date(c("2023-11-10", "2025-12-16", "2026-01-02")),
+    date = as.Date(c("2018-05-25", "2025-12-16", "2026-01-02")),
     root = "DI1",
-    contract_code = c("DI1F26", "DI1F26", "DI1F41"),
-    ticker = c("DI1F26", "DI1F26", "DI1F41"),
+    contract_code = c("DI1F23", "DI1F26", "DI1F41"),
+    ticker = c("DI1F23", "DI1F26", "DI1F41"),
     source = c("html", "xml", "xml"),
     open = c(10.61, 14.903, 13.00),
     low = c(10.45, 14.903, 13.00),
     high = c(10.61, 14.913, 13.00),
     close = c(10.505, 14.903, 13.00),
-    settlement_price = c(80708.11, 99395.45, 15122.89),
-    previous_settlement = c(80514.64, 99395.44, NA),
-    corrected_settlement = c(80551.28, NA, NA),
+    settlement_price = c(63783.03, 99395.45, 15122.89),
+    previous_settlement = c(64200.79, 99395.44, NA),
+    corrected_settlement = c(63798.71, NA, NA),
+    change_points = c(-417.76, NA, NA),
     stringsAsFactors = FALSE
   )
   saveRDS(rows, file.path(cache, "aggregate.rds"))
 
-  out <- get_brfut_di_adjustments("DI1F26")
+  out <- get_brfut_di_adjustments(c("DI1F23", "DI1F26"))
   expect_equal(nrow(out), 2)
-  expect_equal(out$di_adjustment_base, c(80551.28, 99395.44))
-  expect_equal(out$di_adjustment_points, c(156.83, 0.01), tolerance = 1e-8)
+  expect_equal(out$di_adjustment_base, c(64200.79, 99395.44))
+  expect_equal(out$di_adjustment_points, c(-417.76, 0.01), tolerance = 1e-8)
   expect_equal(out$di_adjustment_quality, c(
-    "official_corrected_settlement",
+    "official_reported_change_points",
     "official_previous_adjusted_quote"
   ))
   expect_true(all(out$di_adjustment_is_official))
@@ -484,6 +494,62 @@ test_that("DI official adjustments use corrected or previous adjusted quote as b
 
   compact <- get_brfut_agg(root = "DI1")
   expect_false("settlement_price" %in% names(compact))
+})
+
+test_that("DI settlement scale typos are repaired from same-row PU fields", {
+  rows <- data.frame(
+    date = as.Date(c("2018-05-25", "2018-05-25", "2015-12-01")),
+    root = c("DI1", "WIN", "DI1"),
+    ticker = c("DI1F23", "WINM18", "DI1Z15"),
+    settlement_price = c(63783.03, 63783.03, 100000.00),
+    previous_settlement = c(64200.79, 64200.79, 99990.00),
+    corrected_settlement = c(637987.10, 637987.10, 100052.50),
+    stringsAsFactors = FALSE
+  )
+
+  repaired <- brfutures:::`.brf_repair_di_settlement_scale`(rows)
+  expect_equal(repaired$corrected_settlement, c(63798.71, 637987.10, 100052.50))
+
+  attr(rows, "brf_parser_version") <- 7L
+  expect_false(brfutures:::`.brf_parsed_is_current`(rows))
+  attr(repaired, "brf_parser_version") <- 7L
+  expect_true(brfutures:::`.brf_parsed_is_current`(repaired))
+})
+
+test_that("DI PU ingestion and continuous preparation reject zero quote rows", {
+  skip_if_not_installed("bizdays")
+  rows <- data.frame(
+    date = as.Date(rep("2018-05-21", 3)),
+    root = "DI1",
+    ticker = c("DI1N23", "DI1F24", "DI1J23"),
+    maturity = as.Date(c("2023-07-03", "2024-01-02", "2023-04-03")),
+    open = c(0, 10.39, 0),
+    high = c(0, 10.70, 10.50),
+    low = c(0, 10.28, 10.20),
+    close = c(0, 10.28, 10.30),
+    volume = c(0, 100, 10),
+    volume_qty = c(0, 10, 1),
+    PU_high = c(100000, 1, 1),
+    PU_low = c(100000, 2, 2),
+    PU_close = c(100000, 3, 3),
+    stringsAsFactors = FALSE
+  )
+
+  with_pu <- brfutures:::`.brf_di_add_pu_columns`(rows)
+  expect_true(all(is.na(with_pu[1, c("PU_open", "PU_high", "PU_low", "PU_close")])))
+  expect_true(with_pu$PU_high[2] >= with_pu$PU_low[2])
+  expect_true(is.na(with_pu$PU_open[3]))
+  expect_true(all(is.finite(unlist(with_pu[3, c("PU_high", "PU_low", "PU_close")], use.names = FALSE))))
+
+  prepared <- brfutures:::`.brf_di_prepare_continuous_data`(
+    rows,
+    root = "DI1",
+    allowed_maturities = "all",
+    cal = NULL
+  )$data
+  expect_equal(prepared$ticker, "DI1F24")
+  expect_true(prepared$PU_high >= prepared$PU_low)
+  expect_false(identical(prepared$PU_close, 3))
 })
 
 test_that("DI xts treatment keeps PU columns", {
