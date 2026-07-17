@@ -13,12 +13,16 @@ build_continuous_di(
   cal = NULL,
   include_pnl = FALSE,
   add_attrs = TRUE,
-  add_globalenv = TRUE
+  add_globalenv = TRUE,
+  strict_target = TRUE,
+  coverage_mode = c("first_eligible", "restart_strict_suffix")
 )
 }
 \arguments{
 \item{data}{Data frame returned by `get_brfut_agg()` (must contain `date`,
-`root`, `ticker`, `maturity`, and OHLC rate columns).}
+`root`, `ticker`, `maturity`, and OHLC rate columns). Use
+`treatment = "di_adjustments"` when official settlement fields and
+contracts-traded volume must be preserved.}
 
 \item{target_tenor}{Desired time-to-maturity. Interpreted according to
 `tenor_unit`. Accepts a numeric scalar or vector (e.g. `c(1, 3)`).}
@@ -31,8 +35,9 @@ or `"business_days"`.}
 \item{allowed_maturities}{Either `"all"` (default) or a character vector of
 month codes (e.g. `c("F", "G", "H")`) to restrict eligible contracts.}
 
-\item{cal}{Optional `bizdays` calendar; defaults to the ANBIMA calendar used
-by the DI helpers.}
+\item{cal}{Optional `bizdays` calendar; defaults to the ANBIMA national
+financial-market calendar used for DI1 DU. This is intentionally separate
+from the B3 trading-session calendar.}
 
 \item{include_pnl}{When `TRUE`, adds PU-mark approximation P&L, return,
 adjusted OHLC, and index columns.}
@@ -42,19 +47,44 @@ metadata via `.brf_add_futures_attrs()`. Set to `FALSE` to skip.}
 
 \item{add_globalenv}{When `TRUE` (default), assigns the resulting series into
 the global environment. Set to `FALSE` to skip.}
+
+\item{strict_target}{When `TRUE` (default), never selects a contract below
+the requested tenor. An ineligible prefix may be discarded before the
+series starts; any later day without an eligible monotonic contract aborts
+the build. Set to `FALSE` only to explicitly allow the longest available
+monotonic contract below target.}
+
+\item{coverage_mode}{Coverage behavior after the first eligible row.
+`"first_eligible"` (default) preserves fail-closed behavior and aborts on
+any later selection gap. `"restart_strict_suffix"` is an explicit
+`strict_target = TRUE` mode for sparse historical universes: it discards
+the earlier prefix at each internal selection gap, resets monotonic
+maturity state, and returns the final greedy strict suffix. The gap day is
+re-evaluated as a fresh start; a day with no contract at or above target is
+dropped. Missing roll bridges still abort.}
 }
 \value{
 An `xts` object when a single tenor is supplied, or a named list of
   `xts` objects when `target_tenor` has length > 1. Attributes include the
-  roll schedule and active contracts.
+  roll schedule, active contracts, and the ordinal-to-symbol contract map.
 }
 \description{
 DI futures are quoted in annualized rates, while fills and risk are often
 represented through the contract's notional price (PU). This helper stitches a continuous
 DI series by always selecting the contract whose business-days-to-maturity
-is closest **above** a target horizon (e.g. 1 year ??? 252 business days).
-It augments the selected rows with PU columns so the resulting object can be
-used directly for backtesting in notional terms. When `include_pnl = TRUE`,
+is closest **above** a target horizon (e.g. 1 year = 252 business days).
+Contract maturities are monotonic after the series starts: once the series
+rolls forward, a disappearing/reappearing contract can never make it roll
+backward. By default, days without a contract at or above the requested
+tenor are discarded only before the first selected row and fail closed
+thereafter. Duplicate `(date, ticker, maturity)` quotes are collapsed only
+when every economic field agrees; conflicting quotes fail closed before
+contract selection. Textual source/provenance differences alone do not make
+otherwise identical quotes conflict.
+It augments the selected rows with raw PU and real-contract identity for
+research backtests. It is not a synthetic liquidable contract: an executor
+must keep a per-contract ledger and model each roll as closing the old
+contract and opening the new one. When `include_pnl = TRUE`,
 the added `PU_pnl`/return fields are continuous-series approximations based
 on PU marks and roll adjustments; they are not official B3 DI variation
 margin. Use `get_brfut_di_adjustments()` or the `di_adjustment_points`

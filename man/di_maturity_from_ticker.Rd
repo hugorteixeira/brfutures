@@ -9,7 +9,10 @@ di_maturity_from_ticker(ticker, cal = NULL)
 \arguments{
 \item{ticker}{Character scalar such as `"DI1F25"`.}
 
-\item{cal}{Optional `bizdays` calendar.}
+\item{cal}{Optional `bizdays` calendar. For ticker-to-maturity resolution,
+the default is the B3 trading-session calendar because DI1 expires on the
+first exchange session of its contract month. PU tenor calculations use
+the separate ANBIMA financial-day default.}
 }
 \value{
 A `Date` with the contract maturity.

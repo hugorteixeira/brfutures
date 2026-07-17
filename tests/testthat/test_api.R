@@ -415,8 +415,7 @@ test_that("DI futures add PU notional columns", {
     holidays = bizdays::holidays("Brazil/ANBIMA"),
     weekdays = c("saturday", "sunday")
   )
-  valid_days <- bizdays::bizdays(di_rates$date, di_rates$maturity, cal) +
-    as.integer(bizdays::is.bizday(di_rates$date, cal))
+  valid_days <- bizdays::bizdays(di_rates$date, di_rates$maturity, cal)
   expect_equal(
     augmented$PU_open,
     round(1e5 / (1 + di_rates$open / 100)^(valid_days / 252), 2)
@@ -496,6 +495,21 @@ test_that("DI official adjustments use reported points or previous adjusted quot
   expect_false("settlement_price" %in% names(compact))
 })
 
+test_that("DI long-tenor tick change starts on the official effective date", {
+  expect_equal(
+    brfutures:::`.brf_di_get_tick_size`(61, as.Date("2025-08-17")),
+    0.010
+  )
+  expect_equal(
+    brfutures:::`.brf_di_get_tick_size`(61, as.Date("2025-08-18")),
+    0.005
+  )
+  expect_equal(
+    brfutures:::`.brf_di_get_tick_size`(60, as.Date("2025-08-17")),
+    0.005
+  )
+})
+
 test_that("DI settlement scale typos are repaired from same-row PU fields", {
   rows <- data.frame(
     date = as.Date(c("2018-05-25", "2018-05-25", "2015-12-01")),
@@ -557,6 +571,7 @@ test_that("DI maturity parsing requires an explicit contract without coercion wa
 
   expect_silent(maturity <- di_maturity_from_ticker("di1f27"))
   expect_s3_class(maturity, "Date")
+  expect_equal(maturity, as.Date("2027-01-04"))
   expect_error(di_maturity_from_ticker("DI1FUT"), "Expected an explicit maturity")
   expect_error(di_maturity_from_ticker(NA_character_), "one non-missing")
 })
@@ -584,8 +599,7 @@ test_that("DI xts treatment keeps PU columns", {
     holidays = bizdays::holidays("Brazil/ANBIMA"),
     weekdays = c("saturday", "sunday")
   )
-  valid_days <- bizdays::bizdays(dates, maturity, cal) +
-    as.integer(bizdays::is.bizday(dates, cal))
+  valid_days <- bizdays::bizdays(dates, maturity, cal)
   expected_close <- round(1e5 / (1 + c(12.4, 13.05) / 100)^(valid_days / 252), 2)
   expect_equal(as.numeric(augmented_xts$PU_close), expected_close)
   months_bucket <- brfutures:::`.brf_di_months_between_floor`(dates, maturity)

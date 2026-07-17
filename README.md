@@ -101,24 +101,45 @@ The DI1 adjustment contract deliberately keeps the exchange fields separate:
 | `brfutures` field | Meaning |
 | --- | --- |
 | `settlement_price` | current B3 settlement price in PU |
-| `previous_settlement` | prior settlement already updated by the daily carry factor |
-| `corrected_settlement` | same-row current carry-corrected settlement reference; diagnostic, not the current adjustment base |
-| `change_points` | B3-reported current variation in PU points when the source publishes it |
+| `previous_settlement` | raw B3 legacy/XML field; its row meaning depends on the source regime below |
+| `corrected_settlement` | raw legacy HTML `AJUSTE CORRIG.` field; its row meaning changed historically |
+| `change_points` | raw legacy HTML `VAR. PTOS.` field; normally official margin points, except in the corrected-base regime below |
 | `di_adjustment_base` | canonical base used to reconcile the current adjustment |
 | `di_adjustment_points` | canonical per-contract current adjustment in PU points |
 
-For legacy HTML DI1 rows, `di_adjustment_points` prefers the B3-reported
-`change_points`. When that field is unavailable (including BVBG XML rows), the
-fallback is:
+The raw HTML cache proves three deterministic layouts despite unchanged column
+labels:
+
+| B3 source interval | Canonical base and points |
+| --- | --- |
+| through 2018-09-21 | `change_points` is authoritative; `base = settlement_price - change_points` |
+| 2018-09-24 through 2019-06-28 | `previous_settlement` is the uncorrected prior `PAt`; `corrected_settlement` carries that quote into the current session; `base = corrected_settlement`, `points = settlement_price - base` |
+| from 2019-07-01 through the HTML cutover | `change_points` is authoritative again; the two previous/corrected fields normally contain the same current base |
+| BVBG XML from 2025-12-16 | `PrvsAdjstdQt` is the current adjusted base; `points = settlement_price - previous_settlement` |
+
+In the middle interval, a small number of contract-launch and expiry rows put
+the next-session corrected quote in the raw corrected column. `brfutures`
+recovers the common daily carry factor from at least three maturities in the
+same full DI1 bulletin and applies it to the raw prior `PAt`; a partial input
+without that cross-sectional consensus fails closed. The resulting provenance
+is `official_corrected_adjusted_quote`. Regime normalization does not overwrite
+raw `previous_settlement`, `corrected_settlement`, or `change_points`; the
+explicit exception is the proven same-row power-of-ten source repair described
+below.
+
+Outside that bounded interval, legacy HTML `di_adjustment_points` preserves the
+B3-reported `change_points` and derives its reconciled base from the same row.
+When that field is unavailable (including BVBG XML rows), the fallback is:
 
 ```text
 settlement_price - previous_settlement
 ```
 
-`previous_settlement` is therefore the normal `di_adjustment_base`. If it is
-missing but `settlement_price` and `change_points` are both present, the base
-can be reconstructed as `settlement_price - change_points`. The same-row
-`corrected_settlement` must never replace that base.
+`CorrectedSettlement` is consequently diagnostic outside the bounded
+corrected-base interval and must never participate in a global lag invariant.
+The executable contract is only the same-row identity
+`di_adjustment_points = settlement_price - di_adjustment_base`, together with
+official/final provenance.
 
 Settlement-scale typos are repaired only when another same-row DI settlement
 field proves a plausible power-of-ten mismatch. Values at or slightly above
@@ -148,8 +169,17 @@ options(brfutures.bvbg_xml_path = "~/Downloads")
 
 ### 4. Build continuous futures series 📈
 ```r
-# Get the aggregate data for a specific period
+# Get generic aggregate data for a specific period
 data <- get_brfut_agg(start = "2024-01-01", end = "2024-06-01")
+
+# DI continuous data must preserve the official settlement contract and the
+# contracts-traded field; generic clean_data intentionally drops those fields.
+di_data <- get_brfut_agg(
+  start = "2024-01-01",
+  end = "2024-06-01",
+  root = "DI1",
+  treatment = "di_adjustments"
+)
 
 # Build backward-adjusted continuous series (preserves current price levels)
 # This scales past history whenever a roll occurs (Panama method)
@@ -166,6 +196,15 @@ forward_series <- build_forward_adjusted(
   root = "WIN", 
   days_before_roll = 5
 )
+
+# DI uses a constant business-day tenor and fails closed by default.
+di_2y <- build_continuous_di(
+  data = di_data,
+  target_tenor = 2,
+  tenor_unit = "years",
+  strict_target = TRUE,
+  include_pnl = TRUE
+)
 ```
 
 The continuous futures functions support:
@@ -174,6 +213,114 @@ The continuous futures functions support:
 - **Custom roll schedules**: Adjust how many days before maturity to roll
 - **Maturity filtering**: Select specific months (e.g., "F", "G", "H") or use all
 - **Multi-root support**: Include additional roots for historical continuity
+
+### Constant-tenor DI safety contract
+
+`build_continuous_di()` is deliberately stricter than a generic continuous
+future. It selects the closest contract at or above the requested tenor and
+never permits actual maturity to move backward. An initial prefix with no
+eligible contract may be discarded; after the first selected session, a day
+without an eligible monotonic contract aborts the build. Setting
+`strict_target = FALSE` is the explicit opt-in to use the longest available
+monotonic contract below target. A roll also aborts unless both contracts have
+a common, finite rate/PU bridge on or before the switch date.
+
+For sparse historical grids, `coverage_mode = "restart_strict_suffix"` is a
+separate, explicit `strict_target = TRUE` policy. At an internal gap it discards
+the earlier prefix, resets the monotonic-maturity state, and re-evaluates that
+same session as a fresh start. If the session still has no contract at or above
+target it is dropped, and the process continues until the final greedy strict
+suffix is found. `attr(x, "continuous_spec")` records `coverage_start`,
+`coverage_end`, and every `gap_resets` decision. Roll bridges are searched only
+inside the retained suffix, so discarded history cannot make the published
+suffix appear executable. A missing in-suffix bridge still aborts.
+
+Selection is deterministic even when providers repeat a
+`(date, ticker, maturity)` row. Economically identical copies collapse to one
+canonical quote regardless of input order or textual source/provenance;
+different OHLC, volume, interest, bid/ask, reference, or settlement values for
+the same key abort the build instead of choosing an arbitrary row.
+
+DI maturity and DI tenor use two deliberately different calendars. A ticker's
+maturity is the first B3 trading session of its contract month; it must not be
+estimated from weekdays alone. Once that date is known, DI DU follows the
+contract's national financial-market day definition: the operation date is
+inclusive and the maturity date is exclusive, using the ANBIMA financial
+calendar. For example, 2018-01-25 counts as financial DU even though B3 had no
+trading session. With that financial calendar,
+`bizdays::bizdays(session_date, maturity_date)` already has exactly that
+cardinality; no extra basis day is added. The public
+`include_basis_day = TRUE` option remains only for explicit legacy
+compatibility and is not the official DI1 convention.
+
+The built-in `bizdays` B3 calendar currently ends in 2025. For maturities
+after that observed coverage, `brfutures` preserves every historical B3
+holiday through the cutoff and projects later exchange closures from the
+longer ANBIMA calendar. This is only a deterministic future-maturity fallback:
+observed session completeness and official settlement availability still come
+from the B3 sidecar, never from the projected calendar.
+
+This calendar answers only the PU-exponent question. Whether an official
+settlement session exists, and when it becomes available, comes from the B3
+settlement sidecar. Continuous research series must not manufacture a session
+or an official adjustment from the financial-DU calendar.
+
+The current DI1 tick regime is effective from 2025-08-18. Contracts above
+three months use a `0.005` percentage-point tick; the former `0.010` tick above
+60 months is retained only for historical dates before that boundary.
+
+Every output row carries the executable contract context numerically:
+
+- `ContractOrdinal`, mapped to `contract_symbol` by `attr(x, "contract_map")`;
+- `ActualMaturity`, encoded as days since `1970-01-01`, and `ValidDays`;
+- raw `Rate*Raw` and `PU*Raw` OHLC fields, even when the primary OHLC is
+  backward-adjusted for research;
+- `Settlement`, `PreviousSettlement`, `AdjustmentBase`,
+  `OfficialAdjustment`, and `AdjustmentOfficial` from the selected real
+  contract.
+
+`attr(x, "active_contracts")` retains both `ticker` and `contract_symbol` for
+each row. `ActualMaturity` is the canonical row-level maturity for execution,
+sizing, and serialization. The scalar `attr(x, "maturity")` is retained only
+for backward compatibility and is an estimated target maturity; it must not be
+used as the selected contract maturity.
+
+Before B3 publishes the official settlement after its 16:10--16:20 VWAP
+window, an operator can compose the existing pure
+helpers without inventing an official value:
+
+```r
+estimated <- positionsizer::ps_di_rate_to_pu(
+  current_rate,
+  maturity_date = maturity,
+  basis_date = session_date,
+  include_basis_day = FALSE,
+  snap_to_tick = FALSE
+)
+estimated_adjustment <- positionsizer::ps_di_adjustment_points(
+  estimated$pu,
+  AdjustmentBase
+)
+```
+
+Once the prior official settlement and every applicable published DI factor
+are available, `AdjustmentBase` can be known before the close. The current
+`PAt` cannot: the current rate converted to PU is only an intraday mark, while
+the B3 may use the closing-window VWAP, valid bid/ask fallbacks, interpolation,
+or arbitration. Therefore `estimated$pu` and `estimated_adjustment` remain
+estimates and become official only when B3 publishes the session's final
+adjustment price. A breakout rate determines a rate/PU fill independently; it
+does not determine the official settlement.
+
+When `include_pnl = TRUE`, `PU_pnl` remains an approximate continuous PU mark,
+identified by `attr(x, "PU_pnl_is_approximate")`. It is not official B3 daily
+variation margin. Cash settlement must use the row-level official adjustment
+fields for the real selected contract. Those fields are necessary but are not
+by themselves sufficient on a roll session: carry may still belong to the old
+contract while the session operation opens the new one. The executor must keep
+a ledger keyed by `(session, contract_symbol)`, close the old contract, open the
+new contract, and apply transaction costs to both legs. The continuous series
+must never be treated as one synthetic liquidable contract.
 
 ---
 

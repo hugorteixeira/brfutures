@@ -28,8 +28,10 @@ A data frame with official settlement fields and DI adjustment
 }
 \description{
 This helper returns B3 settlement fields in a DI1-safe shape. Legacy HTML
-rows use the exchange-reported `change_points`; when that field is absent,
-the adjustment is `settlement_price - previous_settlement`. The same-row
-`corrected_settlement` is the same-row carry-corrected settlement reference
-and is never the base of the current day's adjustment.
+rows normally use the exchange-reported `change_points`. Between
+2018-09-24 and 2019-06-28, however, the legacy bulletin exposed the
+uncorrected prior settlement in `previous_settlement` and the carry-adjusted
+current base in `corrected_settlement`; that interval is normalized
+separately. When `change_points` is absent, the adjustment is
+`settlement_price - previous_settlement`.
 }

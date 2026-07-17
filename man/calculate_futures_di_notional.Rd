@@ -9,10 +9,10 @@ calculate_futures_di_notional(
   maturity_date,
   basis_date = Sys.Date(),
   cal = NULL,
-  include_basis_day = TRUE,
+  include_basis_day = FALSE,
   snap_to_tick = TRUE,
   round_pu = TRUE,
-  rule_change_date = as.Date("2025-08-25")
+  rule_change_date = as.Date("2025-08-18")
 )
 }
 \arguments{
@@ -22,9 +22,15 @@ calculate_futures_di_notional(
 
 \item{basis_date}{Trade/reference date.}
 
-\item{cal}{Optional `bizdays` calendar.}
+\item{cal}{Optional `bizdays` calendar for DI financial-day tenor. The
+default is the ANBIMA national financial calendar, not the B3
+trading-session calendar used to resolve ticker maturity.}
 
-\item{include_basis_day}{Whether to add the basis day to the business-day count.}
+\item{include_basis_day}{Compatibility-only opt-in that adds one business day
+to the financial day count. The default `FALSE` follows the DI1 contract:
+the operation date is inclusive and maturity is exclusive. With the
+financial calendar, `bizdays::bizdays(basis_date, maturity_date)` already
+has that cardinality, so no extra day is added.}
 
 \item{snap_to_tick}{Snap `rates` to the DI tick grid before pricing.}
 

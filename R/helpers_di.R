@@ -1,5 +1,6 @@
 .brf_di_env <- new.env(parent = emptyenv())
 .brf_di_env$calendar <- NULL
+.brf_di_env$session_calendar <- NULL
 
 .brf_di_month_letter <- c(F = 1L, G = 2L, H = 3L, J = 4L, K = 5L, M = 6L, N = 7L, Q = 8L, U = 9L, V = 10L, X = 11L, Z = 12L)
 
@@ -33,7 +34,44 @@
   .brf_di_env$calendar
 }
 
-.brf_di_get_tick_size <- function(mm, basis_date, rule_change_date = as.Date("2025-08-25")) {
+.brf_di_resolve_session_calendar <- function(cal = NULL) {
+  if (!is.null(cal)) {
+    return(cal)
+  }
+  .brf_di_require_bizdays()
+  if (!is.null(.brf_di_env$session_calendar)) {
+    return(.brf_di_env$session_calendar)
+  }
+
+  bizdays::load_builtin_calendars()
+  calendar_name <- "Brazil/B3_brf_sessions"
+  if (!bizdays::has_calendars(calendar_name)) {
+    registered <- bizdays::calendars()
+    b3 <- registered[["Brazil/B3"]]
+    financial <- registered[["Brazil/ANBIMA"]]
+    b3_end <- as.Date(b3$end.date)
+    projected_holidays <- as.Date(financial$holidays)
+    projected_holidays <- projected_holidays[projected_holidays > b3_end]
+
+    bizdays::create.calendar(
+      name = calendar_name,
+      holidays = sort(unique(c(as.Date(b3$holidays), projected_holidays))),
+      weekdays = c("saturday", "sunday"),
+      start.date = as.Date(b3$start.date),
+      end.date = as.Date(financial$end.date)
+    )
+  }
+
+  .brf_di_env$session_calendar <- calendar_name
+  .brf_di_env$session_calendar
+}
+
+.brf_di_first_session_day <- function(year, month, cal = NULL) {
+  first_day <- as.Date(sprintf("%04d-%02d-01", year, month))
+  bizdays::following(first_day, .brf_di_resolve_session_calendar(cal))
+}
+
+.brf_di_get_tick_size <- function(mm, basis_date, rule_change_date = as.Date("2025-08-18")) {
   basis_date <- as.Date(basis_date)
   if (basis_date < rule_change_date) {
     if (mm <= 3) 0.001 else if (mm <= 60) 0.005 else 0.010
@@ -42,12 +80,12 @@
   }
 }
 
-.brf_di_snap_rate_to_tick <- function(rates, mm, basis_date, rule_change_date = as.Date("2025-08-25")) {
+.brf_di_snap_rate_to_tick <- function(rates, mm, basis_date, rule_change_date = as.Date("2025-08-18")) {
   tick <- .brf_di_get_tick_size(mm, basis_date, rule_change_date)
   round(rates / tick) * tick
 }
 
-.brf_di_snap_di_rates <- function(rates, mm, basis_date, rule_change_date = as.Date("2025-08-25")) {
+.brf_di_snap_di_rates <- function(rates, mm, basis_date, rule_change_date = as.Date("2025-08-18")) {
   mapply(
     function(rate, month_bucket, basis) .brf_di_snap_rate_to_tick(rate, month_bucket, basis, rule_change_date),
     rates,
@@ -85,7 +123,7 @@
   out
 }
 
-.brf_di_biz_n <- function(basis_date, maturity_date, cal, include_basis_day = TRUE) {
+.brf_di_biz_n <- function(basis_date, maturity_date, cal, include_basis_day = FALSE) {
   .brf_di_require_bizdays()
   n <- bizdays::bizdays(as.Date(basis_date), as.Date(maturity_date), cal)
   if (isTRUE(include_basis_day)) {
@@ -100,7 +138,7 @@
 .brf_di_resolve_tenor <- function(maturity_date,
                                   basis_date,
                                   cal,
-                                  include_basis_day = TRUE,
+                                  include_basis_day = FALSE,
                                   allow_coercion = FALSE) {
   basis_date <- as.Date(basis_date)
 
@@ -263,7 +301,10 @@
 #' Derive DI maturity date from a B3 ticker
 #'
 #' @param ticker Character scalar such as `"DI1F25"`.
-#' @param cal Optional `bizdays` calendar.
+#' @param cal Optional `bizdays` calendar. For ticker-to-maturity resolution,
+#'   the default is the B3 trading-session calendar because DI1 expires on the
+#'   first exchange session of its contract month. PU tenor calculations use
+#'   the separate ANBIMA financial-day default.
 #' @return A `Date` with the contract maturity.
 #' @export
 di_maturity_from_ticker <- function(ticker, cal = NULL) {
@@ -278,8 +319,6 @@ di_maturity_from_ticker <- function(ticker, cal = NULL) {
       call. = FALSE
     )
   }
-  cal <- .brf_di_resolve_calendar(cal)
-
   month_code <- substr(ticker, 4, 4)
   mm <- .brf_di_month_letter[month_code]
   if (is.na(mm)) stop("Cannot parse month from ticker: ", ticker, call. = FALSE)
@@ -288,17 +327,22 @@ di_maturity_from_ticker <- function(ticker, cal = NULL) {
   if (is.na(y2)) stop("Cannot parse year from ticker: ", ticker, call. = FALSE)
   y4 <- ifelse(y2 >= 90, 1900 + y2, 2000 + y2)
 
-  first_day <- as.Date(sprintf("%04d-%02d-01", y4, mm))
-  bizdays::adjust.next(first_day, cal)
+  .brf_di_first_session_day(y4, mm, cal = cal)
 }
 
 #' DI futures notional (PU) from annualized rates
 #'
-#' @inheritParams di_maturity_from_ticker
+#' @param cal Optional `bizdays` calendar for DI financial-day tenor. The
+#'   default is the ANBIMA national financial calendar, not the B3
+#'   trading-session calendar used to resolve ticker maturity.
 #' @param rates Annualized DI rate(s) in percent.
 #' @param maturity_date Maturity `Date` or number of business days to expiry.
 #' @param basis_date Trade/reference date.
-#' @param include_basis_day Whether to add the basis day to the business-day count.
+#' @param include_basis_day Compatibility-only opt-in that adds one business day
+#'   to the financial day count. The default `FALSE` follows the DI1 contract:
+#'   the operation date is inclusive and maturity is exclusive. With the
+#'   financial calendar, `bizdays::bizdays(basis_date, maturity_date)` already
+#'   has that cardinality, so no extra day is added.
 #' @param snap_to_tick Snap `rates` to the DI tick grid before pricing.
 #' @param round_pu Round the PU to two decimals (B3 convention).
 #' @param rule_change_date Date where the DI tick regime changes.
@@ -308,10 +352,10 @@ calculate_futures_di_notional <- function(rates,
                                           maturity_date,
                                           basis_date = Sys.Date(),
                                           cal = NULL,
-                                          include_basis_day = TRUE,
+                                          include_basis_day = FALSE,
                                           snap_to_tick = TRUE,
                                           round_pu = TRUE,
-                                          rule_change_date = as.Date("2025-08-25")) {
+                                          rule_change_date = as.Date("2025-08-18")) {
   positionsizer::ps_di_rate_to_pu(
     rates = rates,
     maturity_date = maturity_date,
@@ -334,9 +378,9 @@ calculate_futures_di_rates <- function(pu,
                                        maturity_date,
                                        basis_date = Sys.Date(),
                                        cal = NULL,
-                                       include_basis_day = TRUE,
+                                       include_basis_day = FALSE,
                                        snap_to_tick = TRUE,
-                                       rule_change_date = as.Date("2025-08-25")) {
+                                       rule_change_date = as.Date("2025-08-18")) {
   positionsizer::ps_di_pu_to_rate(
     pu = pu,
     maturity_date = maturity_date,
@@ -363,11 +407,11 @@ estimate_pu_from_daily_ohlc <- function(open, high, low, close,
                                         maturity_date,
                                         basis_date,
                                         cal = NULL,
-                                        include_basis_day = TRUE,
+                                        include_basis_day = FALSE,
                                         prefer = c("average_price", "close", "mid", "open"),
                                         bias_pp = 0,
                                         snap_to_tick = TRUE,
-                                        rule_change_date = as.Date("2025-08-25")) {
+                                        rule_change_date = as.Date("2025-08-18")) {
   cal <- .brf_di_resolve_calendar(cal)
   basis_date <- as.Date(basis_date)
   prefer <- match.arg(prefer)
@@ -447,9 +491,9 @@ learn_bias_pp_ema <- function(settle_rate_hist, anchor_rate_hist, lambda = 0.2) 
 ohlc_rates_to_pu_xts <- function(x,
                                  maturity_date = NULL,
                                  cal = NULL,
-                                 include_basis_day = TRUE,
+                                 include_basis_day = FALSE,
                                  snap_to_tick = FALSE,
-                                 rule_change_date = as.Date("2025-08-25"),
+                                 rule_change_date = as.Date("2025-08-18"),
                                  round_pu = TRUE) {
   if (!xts::is.xts(x)) stop("'x' must be an xts object.", call. = FALSE)
   if (NROW(x) == 0) {
@@ -523,9 +567,9 @@ ohlc_rates_to_pu_xts <- function(x,
 di_ohlc_to_pu_augmented_xts <- function(x,
                                         maturity_date = NULL,
                                         cal = NULL,
-                                        include_basis_day = TRUE,
+                                        include_basis_day = FALSE,
                                         snap_to_tick = FALSE,
-                                        rule_change_date = as.Date("2025-08-25"),
+                                        rule_change_date = as.Date("2025-08-18"),
                                         round_pu = FALSE,
                                         snap_rates_back = FALSE,
                                         include_diagnostics = FALSE) {
@@ -652,6 +696,7 @@ di_ohlc_to_pu_augmented_xts <- function(x,
                                    close_col = "close",
                                    date_col = "date",
                                    maturity_col = "maturity",
+                                   include_basis_day = FALSE,
                                    round_pu = TRUE) {
   if (!is.data.frame(data) || !nrow(data)) {
     return(data)
@@ -667,9 +712,10 @@ di_ohlc_to_pu_augmented_xts <- function(x,
   basis <- as.Date(data[[date_col]])
   maturity <- as.Date(data[[maturity_col]])
   cal <- .brf_di_resolve_calendar(NULL)
-  valid_days <- suppressWarnings(
-    bizdays::bizdays(basis, maturity, cal) + as.integer(bizdays::is.bizday(basis, cal))
-  )
+  valid_days <- suppressWarnings(bizdays::bizdays(basis, maturity, cal))
+  if (isTRUE(include_basis_day)) {
+    valid_days <- valid_days + as.integer(bizdays::is.bizday(basis, cal))
+  }
   valid_days[valid_days <= 0] <- NA_real_
   months_bucket <- .brf_di_months_between_floor(basis, maturity)
   tick_size <- mapply(
@@ -704,7 +750,7 @@ di_ohlc_to_pu_augmented_xts <- function(x,
 .brf_di_add_pu_xts <- function(x,
                                ticker,
                                maturity_date = NULL,
-                               include_basis_day = TRUE) {
+                               include_basis_day = FALSE) {
   if (!xts::is.xts(x) || !NROW(x)) {
     return(x)
   }
@@ -747,10 +793,10 @@ di_ohlc_to_pu_augmented_xts <- function(x,
   }
 
   cal <- .brf_di_resolve_calendar(NULL)
-  valid_days <- suppressWarnings(
-    bizdays::bizdays(basis, maturity_vec, cal) +
-      as.integer(bizdays::is.bizday(basis, cal))
-  )
+  valid_days <- suppressWarnings(bizdays::bizdays(basis, maturity_vec, cal))
+  if (isTRUE(include_basis_day)) {
+    valid_days <- valid_days + as.integer(bizdays::is.bizday(basis, cal))
+  }
   valid_days[valid_days <= 0] <- NA_real_
   months_bucket <- .brf_di_months_between_floor(basis, maturity_vec)
   tick_size <- mapply(

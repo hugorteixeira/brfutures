@@ -430,7 +430,7 @@
     CCM = function(year, month) .brf_business_day_before(year, month, 15, offset = 1),
     BGI = function(year, month) .brf_last_business_day(year, month),
     ICF = function(year, month) .brf_business_day_before(year, month, 15, offset = 1),
-    DI1 = function(year, month) .brf_first_business_day(year, month)
+    DI1 = function(year, month) .brf_di_first_session_day(year, month)
   )
 }
 
@@ -440,14 +440,25 @@
   }
   tickers <- as.character(df$ticker)
   pattern <- "^([A-Z0-9]{3,4})([FGHJKMNQUVXZ])([0-9]{2})$"
-  matches <- regmatches(tickers, regexec(pattern, tickers, perl = TRUE))
   month_map <- c(F = 1L, G = 2L, H = 3L, J = 4L, K = 5L, M = 6L, N = 7L, Q = 8L, U = 9L, V = 10L, X = 11L, Z = 12L)
   roots <- if ("root" %in% names(df)) toupper(as.character(df$root)) else rep(NA_character_, length(tickers))
   obs_dates <- if ("date" %in% names(df)) as.Date(df$date) else rep(as.Date(NA), length(tickers))
   calculators <- .brf_maturity_calculators()
-  maturity <- rep(as.Date(NA), length(tickers))
-  for (i in seq_along(matches)) {
-    m <- matches[[i]]
+  maturity_cache <- new.env(parent = emptyenv(), hash = TRUE)
+  reference_year <- ifelse(is.na(obs_dates), NA_character_, format(obs_dates, "%Y"))
+  group_key <- paste(tickers, roots, reference_year, sep = "\r")
+  representative <- which(!duplicated(group_key))
+  representative_key <- group_key[representative]
+  representative_tickers <- tickers[representative]
+  matches <- regmatches(
+    representative_tickers,
+    regexec(pattern, representative_tickers, perl = TRUE)
+  )
+  maturity_by_group <- rep(as.Date(NA), length(representative))
+
+  for (group in seq_along(matches)) {
+    i <- representative[[group]]
+    m <- matches[[group]]
     if (length(m) != 4) {
       next
     }
@@ -474,9 +485,13 @@
     if (is.null(calc)) {
       next
     }
-    maturity[i] <- calc(maturity_year, month)
+    cache_key <- paste(root_key, maturity_year, month, sep = ":")
+    if (!exists(cache_key, envir = maturity_cache, inherits = FALSE)) {
+      assign(cache_key, calc(maturity_year, month), envir = maturity_cache)
+    }
+    maturity_by_group[group] <- get(cache_key, envir = maturity_cache, inherits = FALSE)
   }
-  df$maturity <- maturity
+  df$maturity <- maturity_by_group[match(group_key, representative_key)]
   df
 }
 
@@ -575,7 +590,7 @@
 
 .brf_agg_di_adjustments_treatment <- function(df, ...) {
   cleaned <- .brf_agg_standard_treatment(df, ...)
-  .brf_add_di_adjustment_columns(cleaned)
+  normalize_brfut_di_adjustments(cleaned)
 }
 
 .brf_resolve_agg_treatment <- function(treatment) {
@@ -803,7 +818,10 @@
   return(data)
 }
 .brf_add_futures_di <- function(data, ticker) {
-  if (xts::is.xts(data)) {
+  continuous_spec <- attr(data, "continuous_spec", exact = TRUE)
+  is_constant_tenor <- is.list(continuous_spec) &&
+    identical(continuous_spec$method, "di_constant_tenor")
+  if (xts::is.xts(data) && !is_constant_tenor) {
     data <- .brf_di_add_pu_xts(data, ticker)
   } else if (is.data.frame(data)) {
     data <- .brf_di_add_pu_columns(data)
