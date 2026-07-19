@@ -195,3 +195,95 @@ test_that("DI XML adjustment uses the official previous adjusted quote", {
   expect_equal(out$di_adjustment_quality, "official_previous_adjusted_quote")
   expect_true(out$di_adjustment_is_official)
 })
+
+di_zero_ohlc_repair_rows <- function() {
+  data.frame(
+    date = rep(as.Date(c("2021-06-09", "2021-06-10")), each = 4L),
+    root = "DI1",
+    contract_code = rep(c("DI1N23", "DI1F24", "DI1N24", "DI1V24"), 2L),
+    ticker = rep(c("DI1N23", "DI1F24", "DI1N24", "DI1V24"), 2L),
+    source = "html",
+    maturity = rep(
+      as.Date(c("2023-07-03", "2024-01-02", "2024-07-01", "2024-10-01")),
+      2L
+    ),
+    open = c(7.110, 7.400, 7.630, 0, 7.205, 0, 7.630, 0),
+    high = c(7.230, 7.490, 7.690, 0, 7.360, 0, 7.820, 0),
+    low = c(7.110, 7.390, 7.600, 0, 7.180, 0, 7.630, 0),
+    close = c(7.210, 7.470, 7.690, 0, 7.350, 0, 7.800, 0),
+    average_price = c(7.199, 7.457, 7.675, 0, 7.270, 7.509, 7.689, 0),
+    trade_count = c(1311, 11807, 760, 0, 2563, 14655, 1578, 0),
+    contracts_traded = c(
+      36575, 205490, 25660, 0,
+      37920, 257530, 53015, 0
+    ),
+    volume = c(1, 1, 1, 0, 1, 1, 1, 0),
+    settlement_price = c(
+      86658.89, 83194.64, 79833.94, 78015.48,
+      86508.54, 82991.61, 79609.55, 77787.95
+    ),
+    previous_settlement = c(
+      86700, 83300, 79900, 78100,
+      86658.89, 83194.64, 79833.94, 78015.48
+    ),
+    change_points = c(-41.11, -105.36, -66.06, -84.52, -150.35, -203.03, -224.39, -227.53),
+    last_bid = c(NA, NA, NA, NA, 7.35, 7.60, 7.80, NA),
+    last_ask = c(NA, NA, NA, NA, 7.36, 7.61, 7.81, NA),
+    stringsAsFactors = FALSE
+  )
+}
+
+test_that("DI repairs only proven traded all-zero legacy bulletin OHLC", {
+  rows <- di_zero_ohlc_repair_rows()
+  out <- brfutures:::`.brf_agg_di_adjustments_treatment`(rows)
+  target <- out$date == as.Date("2021-06-10") & out$ticker == "DI1F24"
+  no_trade <- out$date == as.Date("2021-06-10") & out$ticker == "DI1V24"
+
+  expect_true(out$ohlc_repaired[target])
+  expect_identical(
+    out$ohlc_repair_method[target],
+    "prior_session_cross_sectional_vwap_settlement_v1"
+  )
+  expect_identical(
+    out$ohlc_repair_status[target],
+    "modelled_traded_bulletin_zero_ohlc"
+  )
+  expect_identical(out$ohlc_repair_source_contracts[target], "DI1N23,DI1N24")
+  expect_identical(out$ohlc_repair_neighbor_mode[target], "bracket_interpolation")
+  expect_equal(out$ohlc_repair_prior_session_date[target], as.Date("2021-06-09"))
+  expect_equal(
+    unname(unlist(out[target, paste0("ohlc_original_", c("open", "high", "low", "close"))])),
+    rep(0, 4L)
+  )
+  expect_true(all(is.finite(unlist(out[target, c("open", "high", "low", "close")]))))
+  expect_lte(out$low[target], min(out$open[target], out$close[target], out$average_price[target]))
+  expect_gte(out$high[target], max(out$open[target], out$close[target], out$average_price[target]))
+
+  expect_false(out$ohlc_repaired[no_trade])
+  expect_true(all(unlist(out[no_trade, c("open", "high", "low", "close")]) == 0))
+  expect_true(is.na(out$ohlc_repair_method[no_trade]))
+})
+
+test_that("DI continuous strict coverage retains a repaired traded bulletin day", {
+  rows <- di_zero_ohlc_repair_rows()
+  series <- build_continuous_di(
+    rows,
+    target_tenor = 3,
+    tenor_unit = "years",
+    allowed_maturities = "F",
+    selection_mode = "calendar_horizon",
+    coverage_mode = "restart_strict_suffix",
+    add_attrs = FALSE,
+    add_globalenv = FALSE
+  )
+
+  expect_identical(
+    as.character(as.Date(zoo::index(series))),
+    c("2021-06-09", "2021-06-10")
+  )
+  expect_identical(
+    attr(series, "active_contracts")$contract_symbol,
+    c("DI1F24", "DI1F24")
+  )
+  expect_true(all(as.numeric(series[, "RateOpenRaw"]) > 0))
+})

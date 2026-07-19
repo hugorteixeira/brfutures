@@ -24,7 +24,8 @@ latest root files before loading. Defaults to `FALSE`.}
 }
 \value{
 A data frame with official settlement fields and DI adjustment
-  columns.
+  columns. Rows whose legacy B3 bulletin reported an all-zero OHLC despite
+  proven trading can also carry versioned `ohlc_repair_*` provenance.
 }
 \description{
 This helper returns B3 settlement fields in a DI1-safe shape. Legacy HTML

@@ -755,8 +755,26 @@ get_brfut_agg <- function(start = NULL,
   }
   bounds <- .brf_normalize_date_bounds(start, end)
   data$date <- as.Date(data$date)
+  treatment_key <- if (is.character(treatment) && length(treatment)) {
+    tolower(treatment[[1L]])
+  } else {
+    NA_character_
+  }
+  needs_di_prior_context <- !is.na(treatment_key) &&
+    treatment_key %in% c("di_adjustments", "di_adjustments_tibble") &&
+    !is.null(bounds$start)
   if (nrow(data)) {
     from <- if (is.null(bounds$start)) min(data$date) else bounds$start
+    if (needs_di_prior_context) {
+      from <- tryCatch(
+        bizdays::add.bizdays(
+          bounds$start,
+          -1L,
+          .brf_di_resolve_session_calendar()
+        ),
+        error = function(e) bounds$start - 7L
+      )
+    }
     to <- bounds$end
     data <- data[data$date >= from & data$date <= to, , drop = FALSE]
   }
@@ -766,7 +784,12 @@ get_brfut_agg <- function(start = NULL,
   }
   treatment_fn <- .brf_resolve_agg_treatment(treatment)
   result <- treatment_fn(data)
-  .brf_estimate_maturity(result)
+  result <- .brf_estimate_maturity(result)
+  if (needs_di_prior_context && is.data.frame(result) && "date" %in% names(result)) {
+    result_date <- suppressWarnings(as.Date(result$date))
+    result <- result[result_date >= bounds$start, , drop = FALSE]
+  }
+  result
 }
 
 `%||%` <- function(lhs, rhs) {

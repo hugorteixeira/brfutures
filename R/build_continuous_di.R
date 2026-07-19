@@ -1,14 +1,16 @@
-#' Build DI futures continuous series at a constant time-to-maturity
+#' Build DI futures continuous series with an explicit contract-selection rule
 #'
 #' DI futures are quoted in annualized rates, while fills and risk are often
-#' represented through the contract's notional price (PU). This helper stitches a continuous
-#' DI series by always selecting the contract whose business-days-to-maturity
-#' is closest **above** a target horizon (e.g. 1 year = 252 business days).
+#' represented through the contract's notional price (PU). For integer yearly
+#' tenors restricted to January contracts, the default `"auto"` mode selects
+#' the January maturity `N` calendar years ahead (for example, 3Y in 2024 uses
+#' DI1F27 and rolls to DI1F28 on the first observed 2025 session). Other
+#' configurations retain the historical strict business-day-floor rule.
 #' Contract maturities are monotonic after the series starts: once the series
 #' rolls forward, a disappearing/reappearing contract can never make it roll
-#' backward. By default, days without a contract at or above the requested
-#' tenor are discarded only before the first selected row and fail closed
-#' thereafter. Duplicate `(date, ticker, maturity)` quotes are collapsed only
+#' backward. By default, days without a contract eligible under the resolved
+#' selection rule are discarded only before the first selected row and fail
+#' closed thereafter. Duplicate `(date, ticker, maturity)` quotes are collapsed only
 #' when every economic field agrees; conflicting quotes fail closed before
 #' contract selection. Textual source/provenance differences alone do not make
 #' otherwise identical quotes conflict.
@@ -41,11 +43,17 @@
 #'   metadata via `.brf_add_futures_attrs()`. Set to `FALSE` to skip.
 #' @param add_globalenv When `TRUE` (default), assigns the resulting series into
 #'   the global environment. Set to `FALSE` to skip.
-#' @param strict_target When `TRUE` (default), never selects a contract below
-#'   the requested tenor. An ineligible prefix may be discarded before the
-#'   series starts; any later day without an eligible monotonic contract aborts
-#'   the build. Set to `FALSE` only to explicitly allow the longest available
-#'   monotonic contract below target.
+#' @param strict_target In `"strict_du_floor"` mode, `TRUE` (default) never
+#'   selects a contract below the requested tenor. An ineligible prefix may be
+#'   discarded before the series starts; any later day without an eligible
+#'   monotonic contract aborts the build. Set to `FALSE` only to explicitly
+#'   allow the longest available monotonic contract below target. Calendar
+#'   horizon selection requires `TRUE`.
+#' @param selection_mode Contract-selection rule. `"auto"` (default) resolves
+#'   to `"calendar_horizon"` only for positive integer `"years"` tenors with
+#'   January-only (`"F"`) maturities; otherwise it resolves to
+#'   `"strict_du_floor"`. The explicit legacy mode is useful for reproducing
+#'   pre-calendar-horizon research.
 #' @param coverage_mode Coverage behavior after the first eligible row.
 #'   `"first_eligible"` (default) preserves fail-closed behavior and aborts on
 #'   any later selection gap. `"restart_strict_suffix"` is an explicit
@@ -68,9 +76,11 @@ build_continuous_di <- function(data,
                                 add_attrs = TRUE,
                                 add_globalenv = TRUE,
                                 strict_target = TRUE,
+                                selection_mode = c("auto", "calendar_horizon", "strict_du_floor"),
                                 coverage_mode = c("first_eligible", "restart_strict_suffix")) {
   .brf_di_require_bizdays()
   tenor_unit <- match.arg(tenor_unit)
+  selection_mode <- match.arg(selection_mode)
   coverage_mode <- match.arg(coverage_mode)
   if (!is.logical(strict_target) || length(strict_target) != 1L || is.na(strict_target)) {
     stop("'strict_target' must be TRUE or FALSE.", call. = FALSE)
@@ -91,6 +101,7 @@ build_continuous_di <- function(data,
         add_attrs = add_attrs,
         add_globalenv = add_globalenv,
         strict_target = strict_target,
+        selection_mode = selection_mode,
         coverage_mode = coverage_mode
       )
     })
@@ -108,6 +119,7 @@ build_continuous_di <- function(data,
     add_attrs = add_attrs,
     add_globalenv = add_globalenv,
     strict_target = strict_target,
+    selection_mode = selection_mode,
     coverage_mode = coverage_mode
   )
 }
@@ -133,6 +145,53 @@ build_continuous_di <- function(data,
     business_days = as.integer(round(target_tenor)),
     stop("Unsupported 'tenor_unit'.", call. = FALSE)
   )
+}
+
+.brf_di_calendar_horizon_eligible <- function(target_tenor,
+                                               tenor_unit,
+                                               allowed_maturities) {
+  target <- suppressWarnings(as.numeric(target_tenor))
+  allowed <- toupper(trimws(as.character(allowed_maturities)))
+  identical(tenor_unit, "years") &&
+    length(target) == 1L && is.finite(target) && target > 0 &&
+    abs(target - round(target)) < sqrt(.Machine$double.eps) &&
+    identical(allowed, "F")
+}
+
+.brf_di_resolve_selection_mode <- function(selection_mode,
+                                            target_tenor,
+                                            tenor_unit,
+                                            allowed_maturities) {
+  mode <- match.arg(
+    selection_mode,
+    c("auto", "calendar_horizon", "strict_du_floor")
+  )
+  calendar_eligible <- .brf_di_calendar_horizon_eligible(
+    target_tenor,
+    tenor_unit,
+    allowed_maturities
+  )
+  if (identical(mode, "auto")) {
+    return(if (calendar_eligible) "calendar_horizon" else "strict_du_floor")
+  }
+  if (identical(mode, "calendar_horizon") && !calendar_eligible) {
+    stop(
+      "'selection_mode = calendar_horizon' requires a positive integer years tenor and allowed_maturities = 'F'.",
+      call. = FALSE
+    )
+  }
+  mode
+}
+
+.brf_di_selection_version <- function(selection_mode, strict_target = TRUE) {
+  if (identical(selection_mode, "calendar_horizon")) {
+    return("calendar_year_january_contract_v1")
+  }
+  if (isTRUE(strict_target)) "strict_du_floor_v1" else "du_floor_with_fallback_v1"
+}
+
+.brf_di_calendar_target_year <- function(basis_date, target_tenor) {
+  as.integer(format(as.Date(basis_date), "%Y")) + as.integer(round(target_tenor))
 }
 
 .brf_di_duplicate_economic_fields <- c(
@@ -270,6 +329,7 @@ build_continuous_di <- function(data,
   # HTML regime needs at least three maturities to establish its common carry
   # factor, including maturities that are not themselves selectable here.
   data <- .brf_di_collapse_duplicate_quotes(data)
+  data <- .brf_repair_di_traded_zero_ohlc(data)
   data <- .brf_add_di_adjustment_columns(data)
   rate_matrix <- do.call(cbind, lapply(rate_cols, function(rate_col) {
     suppressWarnings(as.numeric(data[[rate_col]]))
@@ -356,7 +416,10 @@ build_continuous_di <- function(data,
 .brf_di_pick_contract <- function(rows,
                                   target_days,
                                   minimum_maturity = as.Date(NA),
-                                  strict_target = TRUE) {
+                                  strict_target = TRUE,
+                                  selection_mode = "strict_du_floor",
+                                  basis_date = as.Date(NA),
+                                  target_tenor = NA_real_) {
   if (!nrow(rows)) {
     return(rows)
   }
@@ -367,6 +430,34 @@ build_continuous_di <- function(data,
   }
   if (!nrow(rows)) {
     return(rows)
+  }
+  if (identical(selection_mode, "calendar_horizon")) {
+    basis_date <- as.Date(basis_date)[1L]
+    if (is.na(basis_date)) {
+      stop("Calendar-horizon DI selection requires a valid session date.", call. = FALSE)
+    }
+    target_year <- .brf_di_calendar_target_year(basis_date, target_tenor)
+    maturity_year <- suppressWarnings(as.integer(format(as.Date(rows$maturity), "%Y")))
+    candidates <- rows[
+      rows$month_code == "F" & maturity_year == target_year &
+        as.Date(rows$maturity) > basis_date,
+      ,
+      drop = FALSE
+    ]
+    if (!nrow(candidates)) {
+      return(rows[0, , drop = FALSE])
+    }
+    symbols <- unique(as.character(candidates$ticker))
+    if (length(symbols) != 1L) {
+      stop(
+        "Calendar-horizon DI selection is ambiguous for session ",
+        format(basis_date), " and target year ", target_year, ": ",
+        paste(symbols, collapse = ", "), ".",
+        call. = FALSE
+      )
+    }
+    candidates <- candidates[order(candidates$maturity, candidates$ticker), , drop = FALSE]
+    return(candidates[1L, , drop = FALSE])
   }
   forward <- rows[
     is.finite(rows$valid_days) & rows$valid_days >= target_days,
@@ -870,6 +961,7 @@ build_continuous_di <- function(data,
                                        add_attrs,
                                        add_globalenv,
                                        strict_target,
+                                       selection_mode,
                                        coverage_mode) {
   prepared <- .brf_di_prepare_continuous_data(
     data = data,
@@ -879,6 +971,18 @@ build_continuous_di <- function(data,
   )
   df <- prepared$data
   target_days <- .brf_di_resolve_target_days(target_tenor, tenor_unit)
+  selection_mode <- .brf_di_resolve_selection_mode(
+    selection_mode,
+    target_tenor,
+    tenor_unit,
+    prepared$allowed_maturities
+  )
+  if (identical(selection_mode, "calendar_horizon") && !isTRUE(strict_target)) {
+    stop(
+      "'strict_target = FALSE' is not supported with calendar_horizon selection.",
+      call. = FALSE
+    )
+  }
   by_date <- split(df, df$date)
   trading_days <- sort(unique(df$date))
   selected_list <- list()
@@ -892,7 +996,10 @@ build_continuous_di <- function(data,
       rows,
       target_days,
       minimum_maturity = minimum_maturity,
-      strict_target = strict_target
+      strict_target = strict_target,
+      selection_mode = selection_mode,
+      basis_date = day,
+      target_tenor = target_tenor
     )
     if (!nrow(selected_row)) {
       if (!series_started && isTRUE(strict_target)) {
@@ -907,7 +1014,10 @@ build_continuous_di <- function(data,
           rows,
           target_days,
           minimum_maturity = minimum_maturity,
-          strict_target = strict_target
+          strict_target = strict_target,
+          selection_mode = selection_mode,
+          basis_date = day,
+          target_tenor = target_tenor
         )
         gap_resets[[length(gap_resets) + 1L]] <- data.frame(
           gap_date = as.Date(day),
@@ -927,8 +1037,9 @@ build_continuous_di <- function(data,
         }
         stop(
           "DI continuous series has no eligible monotonic contract on ",
-          format(as.Date(day)), " after the series started; target_days=",
-          target_days, ", minimum_maturity=", current_text,
+          format(as.Date(day)), " after the series started; selection_mode=",
+          selection_mode, ", target_days=", target_days,
+          ", minimum_maturity=", current_text,
           ", strict_target=", isTRUE(strict_target), ".",
           call. = FALSE
         )
@@ -939,9 +1050,16 @@ build_continuous_di <- function(data,
     series_started <- TRUE
   }
   if (!length(selected_list)) {
+    if (identical(selection_mode, "strict_du_floor")) {
+      stop(
+        "No DI contract at or above target_days=", target_days,
+        " was available in the requested period.",
+        call. = FALSE
+      )
+    }
     stop(
-      "No DI contract at or above target_days=", target_days,
-      " was available in the requested period.",
+      "No January DI contract at the requested calendar horizon was available in the requested period; target_tenor=",
+      target_tenor, " years.",
       call. = FALSE
     )
   }
@@ -979,15 +1097,26 @@ build_continuous_di <- function(data,
   attr(attr(series, "index"), "tzone") <- tz_out
   cal_use <- .brf_di_resolve_calendar(cal)
   last_basis <- max(selected$date, na.rm = TRUE)
-  est_maturity <- bizdays::add.bizdays(last_basis, target_days, cal_use)
+  est_maturity <- if (identical(selection_mode, "calendar_horizon")) {
+    as.Date(tail(selected$maturity, 1L))
+  } else {
+    bizdays::add.bizdays(last_basis, target_days, cal_use)
+  }
   continuous_spec <- list(
-    method = "di_constant_tenor",
+    method = if (identical(selection_mode, "calendar_horizon")) {
+      "di_calendar_horizon"
+    } else {
+      "di_constant_tenor"
+    },
     root = prepared$root,
     target_tenor = target_tenor,
     target_days = target_days,
     tenor_unit = tenor_unit,
     allowed_maturities = prepared$allowed_maturities,
     strict_target = strict_target,
+    selection_mode = selection_mode,
+    selection_version = .brf_di_selection_version(selection_mode, strict_target),
+    roll_trigger = "contract_symbol_change_on_observed_session",
     coverage_mode = coverage_mode,
     coverage_start = coverage_start,
     coverage_end = max(selected$date),

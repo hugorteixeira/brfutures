@@ -89,6 +89,98 @@ test_that("constant-tenor DI selection is deterministic and never rolls backward
   expect_true(isTRUE(attr(ordered, "PU_pnl_is_approximate")))
 })
 
+test_that("yearly January DI uses one calendar target contract per official year", {
+  f27 <- as.Date(brfutures::di_maturity_from_ticker("DI1F27"))
+  f28 <- as.Date(brfutures::di_maturity_from_ticker("DI1F28"))
+  f29 <- as.Date(brfutures::di_maturity_from_ticker("DI1F29"))
+  rows <- .di_continuous_rows(
+    date = c(
+      "2024-01-02", "2024-01-02",
+      "2024-12-30", "2024-12-30",
+      "2025-01-02", "2025-01-02",
+      "2025-01-03", "2025-01-03"
+    ),
+    ticker = rep(c("DI1F27", "DI1F28"), 2L) |>
+      c(rep(c("DI1F28", "DI1F29"), 2L)),
+    maturity = rep(c(f27, f28), 2L) |>
+      c(rep(c(f28, f29), 2L)),
+    rate = c(10.0, 10.2, 9.9, 10.1, 9.8, 10.0, 9.7, 9.9),
+    settlement = c(80000, 75000, 80500, 75500, 75600, 71000, 75700, 71100)
+  )
+
+  series <- build_continuous_di(
+    rows,
+    target_tenor = 3,
+    tenor_unit = "years",
+    allowed_maturities = "F",
+    include_pnl = TRUE,
+    add_attrs = FALSE,
+    add_globalenv = FALSE
+  )
+
+  active <- attr(series, "active_contracts")
+  expect_identical(
+    active$contract_symbol,
+    c("DI1F27", "DI1F27", "DI1F28", "DI1F28")
+  )
+  expect_equal(active$actual_maturity, c(f27, f27, f28, f28))
+  rolls <- attr(series, "roll_schedule")
+  expect_equal(nrow(rolls), 1L)
+  expect_equal(rolls$switch_date, as.Date("2025-01-02"))
+  expect_equal(rolls$bridge_date, as.Date("2024-12-30"))
+  spec <- attr(series, "continuous_spec")
+  expect_identical(spec$method, "di_calendar_horizon")
+  expect_identical(spec$selection_mode, "calendar_horizon")
+  expect_identical(spec$selection_version, "calendar_year_january_contract_v1")
+  expect_identical(
+    spec$roll_trigger,
+    "contract_symbol_change_on_observed_session"
+  )
+})
+
+test_that("strict DU floor remains explicitly reproducible for yearly January DI", {
+  basis <- as.Date("2024-01-02")
+  f27 <- as.Date(brfutures::di_maturity_from_ticker("DI1F27"))
+  f28 <- as.Date(brfutures::di_maturity_from_ticker("DI1F28"))
+  rows <- .di_continuous_rows(
+    date = rep(basis, 2L),
+    ticker = c("DI1F27", "DI1F28"),
+    maturity = c(f27, f28),
+    rate = c(10, 10.2)
+  )
+
+  calendar <- build_continuous_di(
+    rows,
+    target_tenor = 3,
+    tenor_unit = "years",
+    allowed_maturities = "F",
+    add_attrs = FALSE,
+    add_globalenv = FALSE
+  )
+  legacy <- build_continuous_di(
+    rows,
+    target_tenor = 3,
+    tenor_unit = "years",
+    allowed_maturities = "F",
+    selection_mode = "strict_du_floor",
+    add_attrs = FALSE,
+    add_globalenv = FALSE
+  )
+
+  expect_identical(
+    attr(calendar, "active_contracts")$contract_symbol,
+    "DI1F27"
+  )
+  expect_identical(
+    attr(legacy, "active_contracts")$contract_symbol,
+    "DI1F28"
+  )
+  expect_identical(
+    attr(legacy, "continuous_spec")$selection_mode,
+    "strict_du_floor"
+  )
+})
+
 test_that("economically identical duplicate DI quotes collapse independently of order", {
   quote <- .di_continuous_rows(
     date = "2024-01-02",

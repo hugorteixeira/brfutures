@@ -590,6 +590,8 @@
 
 .brf_agg_di_adjustments_treatment <- function(df, ...) {
   cleaned <- .brf_agg_standard_treatment(df, ...)
+  cleaned <- .brf_estimate_maturity(cleaned)
+  cleaned <- .brf_repair_di_traded_zero_ohlc(cleaned)
   normalize_brfut_di_adjustments(cleaned)
 }
 
@@ -819,9 +821,9 @@
 }
 .brf_add_futures_di <- function(data, ticker) {
   continuous_spec <- attr(data, "continuous_spec", exact = TRUE)
-  is_constant_tenor <- is.list(continuous_spec) &&
-    identical(continuous_spec$method, "di_constant_tenor")
-  if (xts::is.xts(data) && !is_constant_tenor) {
+  is_continuous_di <- is.list(continuous_spec) &&
+    continuous_spec$method %in% c("di_constant_tenor", "di_calendar_horizon")
+  if (xts::is.xts(data) && !is_continuous_di) {
     data <- .brf_di_add_pu_xts(data, ticker)
   } else if (is.data.frame(data)) {
     data <- .brf_di_add_pu_columns(data)

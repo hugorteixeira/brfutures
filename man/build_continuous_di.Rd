@@ -2,7 +2,7 @@
 % Please edit documentation in R/build_continuous_di.R
 \name{build_continuous_di}
 \alias{build_continuous_di}
-\title{Build DI futures continuous series at a constant time-to-maturity}
+\title{Build DI futures continuous series with an explicit contract-selection rule}
 \usage{
 build_continuous_di(
   data,
@@ -15,6 +15,7 @@ build_continuous_di(
   add_attrs = TRUE,
   add_globalenv = TRUE,
   strict_target = TRUE,
+  selection_mode = c("auto", "calendar_horizon", "strict_du_floor"),
   coverage_mode = c("first_eligible", "restart_strict_suffix")
 )
 }
@@ -48,11 +49,18 @@ metadata via `.brf_add_futures_attrs()`. Set to `FALSE` to skip.}
 \item{add_globalenv}{When `TRUE` (default), assigns the resulting series into
 the global environment. Set to `FALSE` to skip.}
 
-\item{strict_target}{When `TRUE` (default), never selects a contract below
-the requested tenor. An ineligible prefix may be discarded before the
-series starts; any later day without an eligible monotonic contract aborts
-the build. Set to `FALSE` only to explicitly allow the longest available
-monotonic contract below target.}
+\item{strict_target}{In `"strict_du_floor"` mode, `TRUE` (default) never
+selects a contract below the requested tenor. An ineligible prefix may be
+discarded before the series starts; any later day without an eligible
+monotonic contract aborts the build. Set to `FALSE` only to explicitly
+allow the longest available monotonic contract below target. Calendar
+horizon selection requires `TRUE`.}
+
+\item{selection_mode}{Contract-selection rule. `"auto"` (default) resolves
+to `"calendar_horizon"` only for positive integer `"years"` tenors with
+January-only (`"F"`) maturities; otherwise it resolves to
+`"strict_du_floor"`. The explicit legacy mode is useful for reproducing
+pre-calendar-horizon research.}
 
 \item{coverage_mode}{Coverage behavior after the first eligible row.
 `"first_eligible"` (default) preserves fail-closed behavior and aborts on
@@ -70,14 +78,16 @@ An `xts` object when a single tenor is supplied, or a named list of
 }
 \description{
 DI futures are quoted in annualized rates, while fills and risk are often
-represented through the contract's notional price (PU). This helper stitches a continuous
-DI series by always selecting the contract whose business-days-to-maturity
-is closest **above** a target horizon (e.g. 1 year = 252 business days).
+represented through the contract's notional price (PU). For integer yearly
+tenors restricted to January contracts, the default `"auto"` mode selects
+the January maturity `N` calendar years ahead (for example, 3Y in 2024 uses
+DI1F27 and rolls to DI1F28 on the first observed 2025 session). Other
+configurations retain the historical strict business-day-floor rule.
 Contract maturities are monotonic after the series starts: once the series
 rolls forward, a disappearing/reappearing contract can never make it roll
-backward. By default, days without a contract at or above the requested
-tenor are discarded only before the first selected row and fail closed
-thereafter. Duplicate `(date, ticker, maturity)` quotes are collapsed only
+backward. By default, days without a contract eligible under the resolved
+selection rule are discarded only before the first selected row and fail
+closed thereafter. Duplicate `(date, ticker, maturity)` quotes are collapsed only
 when every economic field agrees; conflicting quotes fail closed before
 contract selection. Textual source/provenance differences alone do not make
 otherwise identical quotes conflict.

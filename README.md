@@ -107,6 +107,21 @@ The DI1 adjustment contract deliberately keeps the exchange fields separate:
 | `di_adjustment_base` | canonical base used to reconcile the current adjustment |
 | `di_adjustment_points` | canonical per-contract current adjustment in PU points |
 
+Legacy HTML has three proven rows where a contract traded, with positive
+`trade_count`, contract quantity, VWAP, settlement PU, and closing bid/ask, but
+the bulletin published four literal zero OHLC values. The
+`di_adjustments` treatment repairs only this exact evidence pattern. It models
+the target contract's prior-session OHLC move from two liquid neighbouring
+maturities, calibrates the bar to the reported target VWAP, and anchors close
+to the rate implied by the official settlement PU. Non-traded zero rows,
+partial quotes, and unsupported inputs remain untouched.
+
+Every repaired row is explicitly non-observed and carries `ohlc_repaired`, the
+versioned `ohlc_repair_method`, status, source contracts, neighbour mode, prior
+session date, and the four original OHLC values. The raw cached B3 bulletin is
+never rewritten. This is a narrow source-quality repair, not LOCF or a general
+missing-bar model.
+
 The raw HTML cache proves three deterministic layouts despite unchanged column
 labels:
 
@@ -197,11 +212,12 @@ forward_series <- build_forward_adjusted(
   days_before_roll = 5
 )
 
-# DI uses a constant business-day tenor and fails closed by default.
-di_2y <- build_continuous_di(
+# Integer yearly January series use a calendar horizon by default.
+di_3y <- build_continuous_di(
   data = di_data,
-  target_tenor = 2,
+  target_tenor = 3,
   tenor_unit = "years",
+  allowed_maturities = "F",
   strict_target = TRUE,
   include_pnl = TRUE
 )
@@ -214,16 +230,30 @@ The continuous futures functions support:
 - **Maturity filtering**: Select specific months (e.g., "F", "G", "H") or use all
 - **Multi-root support**: Include additional roots for historical continuity
 
-### Constant-tenor DI safety contract
+### DI selection and roll safety contract
 
 `build_continuous_di()` is deliberately stricter than a generic continuous
-future. It selects the closest contract at or above the requested tenor and
-never permits actual maturity to move backward. An initial prefix with no
-eligible contract may be discarded; after the first selected session, a day
-without an eligible monotonic contract aborts the build. Setting
-`strict_target = FALSE` is the explicit opt-in to use the longest available
-monotonic contract below target. A roll also aborts unless both contracts have
-a common, finite rate/PU bridge on or before the switch date.
+future. With `selection_mode = "auto"`, an integer yearly tenor restricted to
+January (`allowed_maturities = "F"`) is a calendar-horizon series: session `D`
+in calendar year `Y` selects the real contract whose actual January maturity is
+in `Y + N`. Thus 3Y uses F27 throughout official 2024 observations and changes
+to F28 on the first observed 2025 session. DU remains a row-level risk
+diagnostic; it is not the selection boundary in this mode.
+
+All other configurations retain `strict_du_floor`: the closest contract at or
+above the requested DU tenor is selected and actual maturity may never move
+backward. `selection_mode = "strict_du_floor"` explicitly reproduces the old
+yearly-January behavior. In this legacy rule, setting `strict_target = FALSE`
+opts into the longest available monotonic contract below target.
+
+Both modes may discard an initial prefix with no eligible contract. After the
+first selection, a missing monotonic target fails closed unless the explicit
+suffix-restart coverage policy is used. A roll exists only when the selected
+contract symbol changes; no separate maturity-date trigger can create a second
+January roll. A roll also aborts unless both contracts have a common, finite
+rate/PU bridge on or before the switch date. `continuous_spec` stores the
+resolved `selection_mode`, `selection_version`, actual-maturity contract, and
+roll trigger.
 
 For sparse historical grids, `coverage_mode = "restart_strict_suffix"` is a
 separate, explicit `strict_target = TRUE` policy. At an internal gap it discards
