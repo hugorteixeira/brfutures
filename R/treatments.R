@@ -756,23 +756,102 @@
   return(data)
 }
 .brf_add_futures_bit <- function(data, ticker) {
-  data <- .brf_set_futures_attrs(
-    data,
-    slippage = 0.07,
-    fees = 10,
-    ticksize = 0.01,
-    multiplier = 450
-  )
+  conversion_date <- as.Date("2025-06-16")
+  dates <- if (xts::is.xts(data)) {
+    as.Date(zoo::index(data))
+  } else if (is.data.frame(data) && "date" %in% names(data)) {
+    tryCatch(
+      as.Date(data$date),
+      error = function(e) {
+        stop(
+          "BIT financial metadata requires one valid date per row.",
+          call. = FALSE
+        )
+      }
+    )
+  } else {
+    stop(
+      "BIT financial metadata requires one valid date per row.",
+      call. = FALSE
+    )
+  }
+  if (length(dates) != NROW(data) ||
+      anyNA(dates) ||
+      any(!is.finite(as.numeric(dates)))) {
+    stop(
+      "BIT financial metadata requires one valid date per row.",
+      call. = FALSE
+    )
+  }
+  multipliers <- ifelse(dates < conversion_date, 0.1, 0.01)
+  tick_values <- 20 * multipliers
+  regimes <- unique(multipliers[is.finite(multipliers)])
 
-  attr_slippage <- attr(data, "slippage")
-  attr_fees <- attr(data, "fees")
-  FinancialInstrument::currency("USD")
-  FinancialInstrument::future(ticker,
-    currency = "USD",
-    multiplier = 450, tick_size = 0.01,
-    identifiers = list(slippage = attr_slippage, fees = attr_fees),
-    overwrite = TRUE
-  )
+  if (xts::is.xts(data)) {
+    if (!"TickSize" %in% colnames(data)) {
+      data <- cbind(data, TickSize = rep(20, NROW(data)))
+    } else {
+      data[, "TickSize"] <- 20
+    }
+    if (!"TickValue" %in% colnames(data)) {
+      data <- cbind(data, TickValue = tick_values)
+    } else {
+      data[, "TickValue"] <- tick_values
+    }
+    if (!"Multiplier" %in% colnames(data)) {
+      data <- cbind(data, Multiplier = multipliers)
+    } else {
+      data[, "Multiplier"] <- multipliers
+    }
+  } else if (is.data.frame(data)) {
+    data$TickSize <- 20
+    data$TickValue <- tick_values
+    data$Multiplier <- multipliers
+  }
+
+  if (length(regimes) == 1L) {
+    data <- .brf_set_futures_attrs(
+      data,
+      slippage = NULL,
+      fees = NULL,
+      ticksize = 20,
+      multiplier = regimes[[1L]],
+      tickvalue = 20 * regimes[[1L]]
+    )
+    FinancialInstrument::currency("BRL")
+    FinancialInstrument::future(
+      ticker,
+      currency = "BRL",
+      multiplier = regimes[[1L]],
+      tick_size = 20,
+      identifiers = list(
+        specs_source = "B3 contract specification and Circular Letter 013/2025-VPC"
+      ),
+      overwrite = TRUE
+    )
+  } else {
+    # A static multiplier is financially wrong across the B3 position
+    # conversion. Keep row-level values and deliberately omit static financial
+    # attrs so downstream code must dispatch by date.
+    attr(data, "slippage") <- NULL
+    attr(data, "fees") <- NULL
+    attr(data, "ticksize") <- 20
+    attr(data, "tickvalue") <- NULL
+    attr(data, "multiplier") <- NULL
+    existing_instrument <- FinancialInstrument::getInstrument(
+      ticker,
+      silent = TRUE
+    )
+    if (!identical(existing_instrument, FALSE)) {
+      FinancialInstrument::rm_instruments(ticker)
+    }
+  }
+  attr(data, "contract_model") <- "versioned_linear_brl"
+  attr(data, "position_conversion_date") <- conversion_date
+  attr(data, "position_conversion_asof_date") <- as.Date("2025-06-13")
+  attr(data, "position_conversion_ratio") <- 10
+  attr(data, "execution_specs_source") <-
+    "FinHarvest versioned B3 execution registry; B3 Circular Letter 013/2025-VPC"
   return(data)
 }
 .brf_add_futures_ind <- function(data, ticker) {

@@ -391,6 +391,108 @@ test_that("get_brfut applies treatments", {
   expect_equal(agg_regular$open_interest, 1234)
 })
 
+test_that("BIT attrs preserve both official contract-size regimes", {
+  instrument_names <- c(
+    "BITFUT", "BITFUT_OLD", "BITFUT_CURRENT", "BITFUT_REUSED"
+  )
+  on.exit({
+    registered <- intersect(
+      instrument_names,
+      FinancialInstrument::ls_instruments(verbose = FALSE)
+    )
+    if (length(registered)) {
+      FinancialInstrument::rm_instruments(registered)
+    }
+  }, add = TRUE)
+
+  dates <- as.Date(c("2025-06-13", "2025-06-16"))
+  prices <- xts::xts(
+    cbind(
+      Open = c(585000, 598000),
+      High = c(590000, 603000),
+      Low = c(580000, 593000),
+      Close = c(585890.03, 598928),
+      TickSize = c(0.01, 0.01),
+      TickValue = c(0.2, 0.2),
+      Multiplier = c(0.01, 0.01)
+    ),
+    order.by = dates
+  )
+
+  spanning <- brfutures:::`.brf_add_futures_bit`(prices, "BITFUT")
+  expect_equal(as.numeric(spanning$TickSize), c(20, 20))
+  expect_equal(as.numeric(spanning$TickValue), c(2, 0.2))
+  expect_equal(as.numeric(spanning$Multiplier), c(0.1, 0.01))
+  expect_null(attr(spanning, "multiplier"))
+  expect_null(attr(spanning, "tickvalue"))
+  expect_equal(attr(spanning, "position_conversion_date"), as.Date("2025-06-16"))
+  expect_equal(attr(spanning, "position_conversion_asof_date"), as.Date("2025-06-13"))
+  expect_equal(attr(spanning, "position_conversion_ratio"), 10)
+
+  original <- brfutures:::`.brf_add_futures_bit`(prices[1, ], "BITFUT_OLD")
+  expect_equal(attr(original, "ticksize"), 20)
+  expect_equal(attr(original, "tickvalue"), 2)
+  expect_equal(attr(original, "multiplier"), 0.1)
+  expect_equal(as.numeric(original$TickSize), 20)
+  expect_equal(as.numeric(original$TickValue), 2)
+  expect_equal(as.numeric(original$Multiplier), 0.1)
+  expect_equal(
+    as.numeric(original[, c("TickSize", "TickValue", "Multiplier")]),
+    as.numeric(spanning[1, c("TickSize", "TickValue", "Multiplier")])
+  )
+
+  current <- brfutures:::`.brf_add_futures_bit`(prices[2, ], "BITFUT_CURRENT")
+  expect_equal(attr(current, "ticksize"), 20)
+  expect_equal(attr(current, "tickvalue"), 0.2)
+  expect_equal(attr(current, "multiplier"), 0.01)
+  expect_equal(as.numeric(current$TickSize), 20)
+  expect_equal(as.numeric(current$TickValue), 0.2)
+  expect_equal(as.numeric(current$Multiplier), 0.01)
+  expect_equal(
+    as.numeric(current[, c("TickSize", "TickValue", "Multiplier")]),
+    as.numeric(spanning[2, c("TickSize", "TickValue", "Multiplier")])
+  )
+
+  invisible(brfutures:::`.brf_add_futures_bit`(
+    prices[1, ],
+    "BITFUT_REUSED"
+  ))
+  expect_equal(
+    FinancialInstrument::getInstrument("BITFUT_REUSED")$multiplier,
+    0.1
+  )
+  reused <- brfutures:::`.brf_add_futures_bit`(prices, "BITFUT_REUSED")
+  expect_null(attr(reused, "multiplier"))
+  expect_identical(
+    FinancialInstrument::getInstrument("BITFUT_REUSED", silent = TRUE),
+    FALSE
+  )
+})
+
+test_that("BIT attrs reject missing or invalid dates", {
+  no_date <- data.frame(
+    Open = 585000,
+    High = 590000,
+    Low = 580000,
+    Close = 585890.03
+  )
+  missing_date <- transform(no_date, date = as.Date(NA))
+  invalid_date <- transform(no_date, date = "not-a-date")
+
+  expect_error(
+    brfutures:::`.brf_add_futures_bit`(no_date, "BIT_NO_DATE"),
+    "requires one valid date per row"
+  )
+  expect_error(
+    brfutures:::`.brf_add_futures_bit`(missing_date, "BIT_MISSING_DATE"),
+    "requires one valid date per row"
+  )
+  expect_error(
+    brfutures:::`.brf_add_futures_bit`(invalid_date, "BIT_INVALID_DATE"),
+    "requires one valid date per row"
+  )
+})
+
 test_that("DI futures add PU notional columns", {
   skip_if_not_installed("bizdays")
   di_rates <- data.frame(
