@@ -110,6 +110,191 @@ bit_settlement_xml <- function(contract = "BITJ24",
   )
 }
 
+bit_calendar_reference <- function() {
+  paste0(
+    "https://www.b3.com.br/data/files/AC/20/51/03/",
+    "F384591029BEEC39AC094EA8/",
+    "OC%20026-2025%20PRE%20Retificacao%20-%20Calendario%20de%20",
+    "Feriados%202025%20e%20Funcionamento%20da%20B3.pdf"
+  )
+}
+
+bit_calendar_evidence <- function(dates,
+                                  business_days,
+                                  available_at,
+                                  calendar_kind = "complete_daily_status",
+                                  coverage_start = NULL,
+                                  coverage_end = NULL) {
+  path <- tempfile(fileext = ".csv")
+  source_document_path <- tempfile(fileext = ".pdf")
+  writeLines(
+    c(
+      "OFFICIAL B3 CALENDAR SOURCE FIXTURE",
+      bit_calendar_reference()
+    ),
+    source_document_path,
+    useBytes = TRUE
+  )
+  if (identical(calendar_kind, "complete_daily_status")) {
+    utils::write.csv(
+      data.frame(
+        date = as.Date(dates),
+        is_business_day = business_days
+      ),
+      path,
+      row.names = FALSE
+    )
+  } else {
+    utils::write.csv(
+      data.frame(date = as.Date(dates)),
+      path,
+      row.names = FALSE
+    )
+  }
+  evidence <- brf_b3_calendar_evidence_read(
+    path = path,
+    source_document_path = source_document_path,
+    available_at = available_at,
+    source_reference = bit_calendar_reference(),
+    calendar_id = "B3_LISTED_AND_CLEARING_2025",
+    normalization_method = "manual_transcription_reviewed",
+    normalization_version = "bit_calendar_fixture_v1",
+    reviewer = "brfutures-test-reviewer",
+    reviewed_at = available_at,
+    review_attestation = "reviewed_against_hashed_b3_source",
+    calendar_kind = calendar_kind,
+    coverage_start = coverage_start,
+    coverage_end = coverage_end,
+    normalized_file = "OC-026-2025-PRE-calendar.normalized.csv",
+    source_document_file = "OC-026-2025-PRE-calendar.pdf"
+  )
+  unlink(c(path, source_document_path))
+  evidence
+}
+
+test_that("B3 calendar evidence resolves weekend and holiday without guessing", {
+  weekend <- bit_calendar_evidence(
+    dates = seq(as.Date("2025-12-19"), as.Date("2025-12-22"), by = "day"),
+    business_days = c(TRUE, FALSE, FALSE, TRUE),
+    available_at = "2025-02-27T15:00:00Z"
+  )
+  weekend_result <- brfutures:::`.brf_b3_calendar_resolve_posting`(
+    weekend,
+    as.Date("2025-12-19")
+  )
+  expect_equal(weekend_result$posting_date, as.Date("2025-12-22"))
+  expect_equal(
+    weekend_result$calendar_schema_id,
+    "brfutures_b3_calendar_evidence_v1"
+  )
+  expect_equal(
+    weekend_result$calendar_scope,
+    "b3_listed_derivatives_and_clearing"
+  )
+  expect_match(
+    weekend_result$source_document_sha256,
+    "^[0-9a-f]{64}$"
+  )
+  expect_match(weekend_result$normalized_sha256, "^[0-9a-f]{64}$")
+  expect_false(identical(
+    weekend_result$source_document_sha256,
+    weekend_result$normalized_sha256
+  ))
+  expect_match(weekend_result$calendar_fingerprint, "^[0-9a-f]{64}$")
+
+  holiday <- bit_calendar_evidence(
+    dates = seq(as.Date("2025-11-19"), as.Date("2025-11-21"), by = "day"),
+    business_days = c(TRUE, FALSE, TRUE),
+    available_at = "2025-02-27T15:00:00Z"
+  )
+  holiday_result <- brfutures:::`.brf_b3_calendar_resolve_posting`(
+    holiday,
+    as.Date("2025-11-19")
+  )
+  expect_equal(holiday_result$posting_date, as.Date("2025-11-21"))
+})
+
+test_that("session-date evidence uses only listed source sessions", {
+  sessions <- bit_calendar_evidence(
+    dates = as.Date(c("2025-12-19", "2025-12-23")),
+    business_days = NULL,
+    available_at = "2025-02-27T15:00:00Z",
+    calendar_kind = "session_dates",
+    coverage_start = as.Date("2025-12-19"),
+    coverage_end = as.Date("2025-12-23")
+  )
+  expect_equal(
+    sessions$date[sessions$is_business_day],
+    as.Date(c("2025-12-19", "2025-12-23"))
+  )
+  result <- brfutures:::`.brf_b3_calendar_resolve_posting`(
+    sessions,
+    as.Date("2025-12-19")
+  )
+  expect_equal(result$posting_date, as.Date("2025-12-23"))
+})
+
+test_that("B3 calendar evidence is causal and tamper-evident", {
+  late <- bit_calendar_evidence(
+    dates = seq(as.Date("2025-12-19"), as.Date("2025-12-22"), by = "day"),
+    business_days = c(TRUE, FALSE, FALSE, TRUE),
+    available_at = "2025-12-20T04:00:00Z"
+  )
+  expect_error(
+    brfutures:::`.brf_b3_calendar_resolve_posting`(
+      late,
+      as.Date("2025-12-19")
+    ),
+    "not causally available"
+  )
+
+  tampered <- late
+  tampered$is_business_day[tampered$date == as.Date("2025-12-21")] <- TRUE
+  expect_error(
+    brfutures:::`.brf_b3_calendar_validate`(tampered),
+    "fingerprint mismatch"
+  )
+
+  missing_source_hash <- late
+  missing_source_hash$source_document_sha256 <- NULL
+  expect_error(
+    brfutures:::`.brf_b3_calendar_validate`(missing_source_hash),
+    "missing required fields.*source_document_sha256"
+  )
+
+  tampered_source_hash <- late
+  tampered_source_hash$source_document_sha256 <- paste0(
+    if (substr(
+      tampered_source_hash$source_document_sha256[[1L]],
+      1L,
+      1L
+    ) == "a") "b" else "a",
+    substr(
+      tampered_source_hash$source_document_sha256[[1L]],
+      2L,
+      64L
+    )
+  )
+  expect_error(
+    brfutures:::`.brf_b3_calendar_validate`(tampered_source_hash),
+    "fingerprint mismatch"
+  )
+
+  missing_attestation <- late
+  missing_attestation$review_attestation <- NULL
+  expect_error(
+    brfutures:::`.brf_b3_calendar_validate`(missing_attestation),
+    "missing required fields.*review_attestation"
+  )
+
+  tampered_attestation <- late
+  tampered_attestation$review_attestation <- "not_reviewed"
+  expect_error(
+    brfutures:::`.brf_b3_calendar_validate`(tampered_attestation),
+    "review attestation"
+  )
+})
+
 test_that("BVBG.028 lifecycle selects the latest official snapshot", {
   early <- tempfile(fileext = ".xml")
   late <- tempfile(fileext = ".xml")
@@ -410,6 +595,88 @@ test_that("BIT terminal source assembly reconciles all three official prices", {
   expect_false(terminal$execution_supported)
   expect_equal(terminal$usage, "source_validation_only")
   expect_match(terminal$terminal_fingerprint, "^[0-9a-f]{64}$")
+
+  calendar <- bit_calendar_evidence(
+    dates = seq(as.Date("2025-12-23"), as.Date("2025-12-26"), by = "day"),
+    business_days = c(TRUE, FALSE, FALSE, TRUE),
+    available_at = "2025-02-27T15:00:00Z"
+  )
+  with_calendar <- brf_b3_bit_terminal_assemble(
+    settlements,
+    indicators,
+    lifecycle,
+    calendar_evidence = calendar
+  )
+  expect_equal(
+    with_calendar$cash_posting_date,
+    as.Date("2025-12-26")
+  )
+  expect_equal(
+    with_calendar$cash_posting_date_status,
+    "official_b3_business_day_calendar"
+  )
+  expect_equal(
+    with_calendar$cash_posting_calendar_schema_id,
+    "brfutures_b3_calendar_evidence_v1"
+  )
+  expect_equal(
+    with_calendar$cash_posting_calendar_scope,
+    "b3_listed_derivatives_and_clearing"
+  )
+  expect_equal(
+    with_calendar$cash_posting_calendar_available_at,
+    as.POSIXct("2025-02-27 15:00:00", tz = "UTC")
+  )
+  expect_match(
+    with_calendar$cash_posting_calendar_source_document_sha256,
+    "^[0-9a-f]{64}$"
+  )
+  expect_match(
+    with_calendar$cash_posting_calendar_normalized_sha256,
+    "^[0-9a-f]{64}$"
+  )
+  expect_equal(
+    with_calendar$cash_posting_calendar_normalization_method,
+    "manual_transcription_reviewed"
+  )
+  expect_equal(
+    with_calendar$cash_posting_calendar_normalization_version,
+    "bit_calendar_fixture_v1"
+  )
+  expect_equal(
+    with_calendar$cash_posting_calendar_review_attestation,
+    "reviewed_against_hashed_b3_source"
+  )
+  expect_match(
+    with_calendar$cash_posting_calendar_fingerprint,
+    "^[0-9a-f]{64}$"
+  )
+  expect_false(identical(
+    with_calendar$terminal_fingerprint,
+    terminal$terminal_fingerprint
+  ))
+
+  caller_date <- brf_b3_bit_terminal_assemble(
+    settlements,
+    indicators,
+    lifecycle,
+    posting_date = as.Date("2025-12-24")
+  )
+  expect_equal(
+    caller_date$cash_posting_date_status,
+    "caller_supplied_not_calendar_validated"
+  )
+  expect_true(is.na(caller_date$cash_posting_calendar_schema_id))
+  expect_error(
+    brf_b3_bit_terminal_assemble(
+      settlements,
+      indicators,
+      lifecycle,
+      posting_date = as.Date("2025-12-24"),
+      calendar_evidence = calendar
+    ),
+    "either posting_date or calendar_evidence"
+  )
 
   non_final <- settlements
   non_final$settlement_status <- "P"

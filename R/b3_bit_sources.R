@@ -766,6 +766,537 @@ brf_b3_indicators_read <- function(
   found[[1L]]
 }
 
+.brf_b3_calendar_schema_id <- function() {
+  "brfutures_b3_calendar_evidence_v1"
+}
+
+.brf_b3_calendar_schema_version <- function() {
+  1L
+}
+
+.brf_b3_calendar_scope <- function() {
+  "b3_listed_derivatives_and_clearing"
+}
+
+.brf_b3_calendar_parse_business_day <- function(x) {
+  if (is.logical(x)) {
+    return(x)
+  }
+  if (is.numeric(x)) {
+    out <- rep(NA, length(x))
+    out[x == 0] <- FALSE
+    out[x == 1] <- TRUE
+    return(out)
+  }
+  normalized <- tolower(trimws(as.character(x)))
+  out <- rep(NA, length(normalized))
+  out[normalized %in% c("true", "t", "1", "business_day", "session")] <- TRUE
+  out[normalized %in% c("false", "f", "0", "closed", "no_session")] <- FALSE
+  out
+}
+
+.brf_b3_calendar_fingerprint <- function(calendar) {
+  payload <- calendar
+  payload$calendar_fingerprint <- NULL
+  payload <- payload[order(payload$date), , drop = FALSE]
+  rownames(payload) <- NULL
+  digest::digest(payload, algo = "sha256", serialize = TRUE)
+}
+
+#' Read versioned B3 business-calendar evidence
+#'
+#' Reads a normalized calendar CSV reviewed against a separately hashed B3
+#' source document. The CSV must either enumerate every calendar date and its
+#' explicit business-day status, or enumerate the B3 session dates inside an
+#' explicit coverage interval. The latter is expanded without applying a
+#' weekday rule: a date is open only when it is present in the normalized
+#' artifact.
+#'
+#' This function does not turn a free-form caller date into official evidence.
+#' It preserves separate hashes for the normalized payload and official source
+#' document, the normalization method/version, explicit review attestation,
+#' B3 source reference, causal availability timestamp, coverage and a
+#' deterministic normalized fingerprint.
+#'
+#' @param path Readable normalized CSV calendar artifact.
+#' @param source_document_path Readable official B3 source document used to
+#'   normalize and review the CSV. Its SHA-256 is stored separately.
+#' @param available_at Timestamp at which this exact calendar artifact was
+#'   available. It must include a time component.
+#' @param source_reference Public B3 URL or other B3 HTTPS source reference for
+#'   `source_document_path`.
+#' @param calendar_id Stable identifier for the calendar represented by the
+#'   artifact.
+#' @param normalization_method Explicit reviewed normalization method. Either
+#'   `"manual_transcription_reviewed"` or `"machine_parse_reviewed"`.
+#' @param normalization_version Stable non-empty version of the normalization
+#'   procedure.
+#' @param reviewer Stable non-empty identifier for the reviewer.
+#' @param reviewed_at Timestamp at which the normalized calendar was reviewed
+#'   against the hashed official source. It cannot follow `available_at`.
+#' @param review_attestation Must be the explicit literal
+#'   `"reviewed_against_hashed_b3_source"`.
+#' @param calendar_kind Either `"complete_daily_status"` for a contiguous
+#'   daily file with an explicit status column, or `"session_dates"` for a file
+#'   listing every B3 business/session date in an explicit coverage interval.
+#' @param coverage_start,coverage_end Required inclusive coverage interval for
+#'   `calendar_kind = "session_dates"`. For complete daily status these are
+#'   inferred and, when supplied, must match the file exactly.
+#' @param date_column Name of the date column in the CSV.
+#' @param business_day_column Name of the explicit business-day status column
+#'   for `calendar_kind = "complete_daily_status"`.
+#' @param normalized_file Stable normalized CSV filename stored in the
+#'   evidence. Defaults to the basename of `path`.
+#' @param source_document_file Stable official source-document filename stored
+#'   in the evidence. Defaults to the basename of `source_document_path`.
+#' @return A contiguous daily calendar evidence data frame with source and
+#'   schema provenance.
+#' @export
+brf_b3_calendar_evidence_read <- function(
+    path,
+    source_document_path,
+    available_at,
+    source_reference,
+    calendar_id,
+    normalization_method,
+    normalization_version,
+    reviewer,
+    reviewed_at,
+    review_attestation,
+    calendar_kind = c("complete_daily_status", "session_dates"),
+    coverage_start = NULL,
+    coverage_end = NULL,
+    date_column = "date",
+    business_day_column = "is_business_day",
+    normalized_file = basename(path),
+    source_document_file = basename(source_document_path)) {
+  calendar_kind <- match.arg(calendar_kind)
+  if (!is.character(path) || length(path) != 1L ||
+      is.na(path) || !nzchar(path) || !file.exists(path)) {
+    stop("A readable B3 calendar artifact is required.", call. = FALSE)
+  }
+  if (!is.character(source_document_path) ||
+      length(source_document_path) != 1L ||
+      is.na(source_document_path) ||
+      !nzchar(source_document_path) ||
+      !file.exists(source_document_path)) {
+    stop(
+      "A readable official B3 calendar source document is required.",
+      call. = FALSE
+    )
+  }
+  if (identical(
+    normalizePath(path, mustWork = TRUE),
+    normalizePath(source_document_path, mustWork = TRUE)
+  )) {
+    stop(
+      "The normalized CSV and official B3 source document must be separate ",
+      "files.",
+      call. = FALSE
+    )
+  }
+  available_at <- .brf_b3_parse_timestamp(available_at)
+  if (length(available_at) != 1L || is.na(available_at)) {
+    stop(
+      "available_at must be one causal timestamp for the calendar artifact.",
+      call. = FALSE
+    )
+  }
+  if (!is.character(source_reference) ||
+      length(source_reference) != 1L ||
+      is.na(source_reference) ||
+      !grepl(
+        "^https://(?:www\\.)?b3\\.com\\.br/",
+        source_reference,
+        perl = TRUE,
+        ignore.case = TRUE
+      )) {
+    stop(
+      "source_reference must be one public HTTPS b3.com.br reference.",
+      call. = FALSE
+    )
+  }
+  if (!is.character(calendar_id) || length(calendar_id) != 1L ||
+      is.na(calendar_id) || !nzchar(trimws(calendar_id))) {
+    stop("calendar_id must be one non-empty identifier.", call. = FALSE)
+  }
+  normalization_method <- match.arg(
+    normalization_method,
+    c("manual_transcription_reviewed", "machine_parse_reviewed")
+  )
+  if (!is.character(normalization_version) ||
+      length(normalization_version) != 1L ||
+      is.na(normalization_version) ||
+      !nzchar(trimws(normalization_version))) {
+    stop(
+      "normalization_version must be one non-empty identifier.",
+      call. = FALSE
+    )
+  }
+  if (!is.character(reviewer) || length(reviewer) != 1L ||
+      is.na(reviewer) || !nzchar(trimws(reviewer))) {
+    stop("reviewer must be one non-empty identifier.", call. = FALSE)
+  }
+  reviewed_at <- .brf_b3_parse_timestamp(reviewed_at)
+  if (length(reviewed_at) != 1L || is.na(reviewed_at) ||
+      reviewed_at > available_at) {
+    stop(
+      "reviewed_at must be one timestamp no later than available_at.",
+      call. = FALSE
+    )
+  }
+  if (!is.character(review_attestation) ||
+      length(review_attestation) != 1L ||
+      is.na(review_attestation) ||
+      !identical(
+        review_attestation,
+        "reviewed_against_hashed_b3_source"
+      )) {
+    stop(
+      "review_attestation must explicitly equal ",
+      "'reviewed_against_hashed_b3_source'.",
+      call. = FALSE
+    )
+  }
+  for (file_field in c("normalized_file", "source_document_file")) {
+    value <- get(file_field, inherits = FALSE)
+    if (!is.character(value) || length(value) != 1L ||
+        is.na(value) || !nzchar(trimws(value))) {
+      stop(file_field, " must be one non-empty filename.", call. = FALSE)
+    }
+  }
+  source <- utils::read.csv(
+    path,
+    stringsAsFactors = FALSE,
+    check.names = FALSE
+  )
+  if (!date_column %in% names(source)) {
+    stop(
+      "B3 calendar artifact is missing date column `",
+      date_column,
+      "`.",
+      call. = FALSE
+    )
+  }
+  dates <- suppressWarnings(as.Date(source[[date_column]]))
+  if (!length(dates) || anyNA(dates) || anyDuplicated(dates)) {
+    stop(
+      "B3 calendar artifact dates must be non-empty, valid and unique.",
+      call. = FALSE
+    )
+  }
+
+  if (identical(calendar_kind, "complete_daily_status")) {
+    if (!business_day_column %in% names(source)) {
+      stop(
+        "Complete B3 calendar artifact is missing business-day column `",
+        business_day_column,
+        "`.",
+        call. = FALSE
+      )
+    }
+    business_day <- .brf_b3_calendar_parse_business_day(
+      source[[business_day_column]]
+    )
+    if (anyNA(business_day)) {
+      stop(
+        "Complete B3 calendar business-day statuses must be explicit.",
+        call. = FALSE
+      )
+    }
+    expected_dates <- seq(min(dates), max(dates), by = "day")
+    if (!identical(
+      as.numeric(sort(dates)),
+      as.numeric(expected_dates)
+    )) {
+      stop(
+        "Complete B3 calendar artifact must contain every calendar date ",
+        "in its coverage interval.",
+        call. = FALSE
+      )
+    }
+    if (is.null(coverage_start)) {
+      coverage_start <- min(dates)
+    }
+    if (is.null(coverage_end)) {
+      coverage_end <- max(dates)
+    }
+    coverage_start <- as.Date(coverage_start)
+    coverage_end <- as.Date(coverage_end)
+    if (length(coverage_start) != 1L || length(coverage_end) != 1L ||
+        anyNA(c(coverage_start, coverage_end)) ||
+        coverage_start != min(dates) || coverage_end != max(dates)) {
+      stop(
+        "Complete B3 calendar coverage must match its first and last dates.",
+        call. = FALSE
+      )
+    }
+    order_index <- order(dates)
+    dates <- dates[order_index]
+    business_day <- business_day[order_index]
+  } else {
+    coverage_start <- as.Date(coverage_start)
+    coverage_end <- as.Date(coverage_end)
+    if (length(coverage_start) != 1L || length(coverage_end) != 1L ||
+        anyNA(c(coverage_start, coverage_end)) ||
+        coverage_end < coverage_start) {
+      stop(
+        "session_dates evidence requires one valid coverage_start and ",
+        "coverage_end.",
+        call. = FALSE
+      )
+    }
+    if (any(dates < coverage_start | dates > coverage_end)) {
+      stop(
+        "B3 session dates fall outside the declared coverage interval.",
+        call. = FALSE
+      )
+    }
+    expanded_dates <- seq(coverage_start, coverage_end, by = "day")
+    business_day <- expanded_dates %in% dates
+    dates <- expanded_dates
+  }
+  if (!any(business_day)) {
+    stop(
+      "B3 calendar artifact does not contain any business/session date.",
+      call. = FALSE
+    )
+  }
+
+  normalized_sha256 <- .brf_b3_source_file_sha256(path)
+  source_document_sha256 <- .brf_b3_source_file_sha256(
+    source_document_path
+  )
+  out <- data.frame(
+    date = dates,
+    is_business_day = business_day,
+    calendar_schema_id = .brf_b3_calendar_schema_id(),
+    calendar_schema_version = .brf_b3_calendar_schema_version(),
+    calendar_scope = .brf_b3_calendar_scope(),
+    calendar_id = trimws(calendar_id),
+    calendar_kind = calendar_kind,
+    coverage_start = rep(coverage_start, length(dates)),
+    coverage_end = rep(coverage_end, length(dates)),
+    available_at = rep(available_at, length(dates)),
+    source_authority = "B3",
+    source_reference = source_reference,
+    source_document_file = trimws(source_document_file),
+    source_document_sha256 = source_document_sha256,
+    normalized_file = trimws(normalized_file),
+    normalized_sha256 = normalized_sha256,
+    normalization_method = normalization_method,
+    normalization_version = trimws(normalization_version),
+    reviewer = trimws(reviewer),
+    reviewed_at = rep(reviewed_at, length(dates)),
+    review_attestation = review_attestation,
+    calendar_fingerprint = NA_character_,
+    stringsAsFactors = FALSE
+  )
+  out$calendar_fingerprint <- .brf_b3_calendar_fingerprint(out)
+  out
+}
+
+.brf_b3_calendar_validate <- function(calendar) {
+  if (!inherits(calendar, "data.frame") || !nrow(calendar)) {
+    stop(
+      "calendar_evidence must be a non-empty data frame from ",
+      "brf_b3_calendar_evidence_read().",
+      call. = FALSE
+    )
+  }
+  required <- c(
+    "date", "is_business_day", "calendar_schema_id",
+    "calendar_schema_version", "calendar_scope", "calendar_id", "calendar_kind",
+    "coverage_start", "coverage_end", "available_at", "source_authority",
+    "source_reference", "source_document_file", "source_document_sha256",
+    "normalized_file", "normalized_sha256", "normalization_method",
+    "normalization_version", "reviewer", "reviewed_at",
+    "review_attestation",
+    "calendar_fingerprint"
+  )
+  missing <- setdiff(required, names(calendar))
+  if (length(missing)) {
+    stop(
+      "calendar_evidence is missing required fields: ",
+      paste(missing, collapse = ", "),
+      ".",
+      call. = FALSE
+    )
+  }
+  out <- calendar[, required, drop = FALSE]
+  out$date <- as.Date(out$date)
+  out$is_business_day <- .brf_b3_calendar_parse_business_day(
+    out$is_business_day
+  )
+  out$coverage_start <- as.Date(out$coverage_start)
+  out$coverage_end <- as.Date(out$coverage_end)
+  out$available_at <- .brf_b3_parse_timestamp(out$available_at)
+  out$reviewed_at <- .brf_b3_parse_timestamp(out$reviewed_at)
+  scalar_fields <- c(
+    "calendar_schema_id", "calendar_schema_version", "calendar_scope",
+    "calendar_id",
+    "calendar_kind", "coverage_start", "coverage_end", "available_at",
+    "source_authority", "source_reference", "source_document_file",
+    "source_document_sha256", "normalized_file", "normalized_sha256",
+    "normalization_method", "normalization_version", "reviewer",
+    "reviewed_at", "review_attestation",
+    "calendar_fingerprint"
+  )
+  inconsistent <- vapply(
+    scalar_fields,
+    function(field) length(unique(out[[field]])) != 1L,
+    logical(1L)
+  )
+  if (any(inconsistent)) {
+    stop(
+      "calendar_evidence provenance and coverage fields must be constant.",
+      call. = FALSE
+    )
+  }
+  if (!identical(
+    out$calendar_schema_id[[1L]],
+    .brf_b3_calendar_schema_id()
+  ) || !identical(
+    as.integer(out$calendar_schema_version[[1L]]),
+    .brf_b3_calendar_schema_version()
+  )) {
+    stop("Unsupported B3 calendar evidence schema.", call. = FALSE)
+  }
+  if (!identical(
+    out$calendar_scope[[1L]],
+    .brf_b3_calendar_scope()
+  )) {
+    stop(
+      "B3 calendar evidence must cover listed derivatives and clearing.",
+      call. = FALSE
+    )
+  }
+  if (!identical(out$source_authority[[1L]], "B3") ||
+      !nzchar(trimws(out$calendar_id[[1L]])) ||
+      !out$calendar_kind[[1L]] %in%
+        c("complete_daily_status", "session_dates") ||
+      !grepl(
+        "^https://(?:www\\.)?b3\\.com\\.br/",
+        out$source_reference[[1L]],
+        perl = TRUE,
+        ignore.case = TRUE
+      ) ||
+      !nzchar(trimws(out$source_document_file[[1L]])) ||
+      !nzchar(trimws(out$normalized_file[[1L]])) ||
+      !grepl("^[0-9a-f]{64}$", out$source_document_sha256[[1L]]) ||
+      !grepl("^[0-9a-f]{64}$", out$normalized_sha256[[1L]]) ||
+      !grepl("^[0-9a-f]{64}$", out$calendar_fingerprint[[1L]])) {
+    stop("Invalid B3 calendar source provenance.", call. = FALSE)
+  }
+  if (!out$normalization_method[[1L]] %in%
+      c("manual_transcription_reviewed", "machine_parse_reviewed") ||
+      !nzchar(trimws(out$normalization_version[[1L]])) ||
+      !nzchar(trimws(out$reviewer[[1L]])) ||
+      !identical(
+        out$review_attestation[[1L]],
+        "reviewed_against_hashed_b3_source"
+      ) ||
+      is.na(out$reviewed_at[[1L]]) ||
+      out$reviewed_at[[1L]] > out$available_at[[1L]]) {
+    stop(
+      "Invalid B3 calendar normalization review attestation.",
+      call. = FALSE
+    )
+  }
+  expected_dates <- seq(
+    out$coverage_start[[1L]],
+    out$coverage_end[[1L]],
+    by = "day"
+  )
+  if (anyNA(out$date) || anyNA(out$is_business_day) ||
+      anyNA(out$available_at) || anyDuplicated(out$date) ||
+      !identical(
+        as.numeric(sort(out$date)),
+        as.numeric(expected_dates)
+      )) {
+    stop(
+      "B3 calendar evidence must be a complete, valid daily interval.",
+      call. = FALSE
+    )
+  }
+  expected_fingerprint <- .brf_b3_calendar_fingerprint(out)
+  if (!identical(
+    out$calendar_fingerprint[[1L]],
+    expected_fingerprint
+  )) {
+    stop("B3 calendar evidence fingerprint mismatch.", call. = FALSE)
+  }
+  out <- out[order(out$date), , drop = FALSE]
+  rownames(out) <- NULL
+  out
+}
+
+.brf_b3_calendar_resolve_posting <- function(calendar, expiry_date) {
+  calendar <- .brf_b3_calendar_validate(calendar)
+  expiry_date <- as.Date(expiry_date)
+  if (length(expiry_date) != 1L || is.na(expiry_date)) {
+    stop("expiry_date must be one valid Date.", call. = FALSE)
+  }
+  coverage_start <- calendar$coverage_start[[1L]]
+  coverage_end <- calendar$coverage_end[[1L]]
+  if (expiry_date < coverage_start || expiry_date >= coverage_end) {
+    stop(
+      "B3 calendar evidence does not cover expiry through a later date.",
+      call. = FALSE
+    )
+  }
+  expiry_match <- match(expiry_date, calendar$date)
+  if (is.na(expiry_match) ||
+      !isTRUE(calendar$is_business_day[[expiry_match]])) {
+    stop(
+      "BIT expiry is not marked as a B3 business/session date by the ",
+      "calendar evidence.",
+      call. = FALSE
+    )
+  }
+  candidates <- calendar$date[
+    calendar$date > expiry_date & calendar$is_business_day
+  ]
+  if (!length(candidates)) {
+    stop(
+      "B3 calendar evidence contains no business day after BIT expiry.",
+      call. = FALSE
+    )
+  }
+  posting_date <- min(candidates)
+  evidence_available_at <- calendar$available_at[[1L]]
+  if (as.Date(
+    evidence_available_at,
+    tz = "America/Sao_Paulo"
+  ) > expiry_date) {
+    stop(
+      "B3 calendar evidence was not causally available by BIT expiry.",
+      call. = FALSE
+    )
+  }
+  list(
+    posting_date = posting_date,
+    available_at = evidence_available_at,
+    calendar_schema_id = calendar$calendar_schema_id[[1L]],
+    calendar_schema_version =
+      as.integer(calendar$calendar_schema_version[[1L]]),
+    calendar_scope = calendar$calendar_scope[[1L]],
+    calendar_id = calendar$calendar_id[[1L]],
+    calendar_kind = calendar$calendar_kind[[1L]],
+    source_reference = calendar$source_reference[[1L]],
+    source_document_file = calendar$source_document_file[[1L]],
+    source_document_sha256 = calendar$source_document_sha256[[1L]],
+    normalized_file = calendar$normalized_file[[1L]],
+    normalized_sha256 = calendar$normalized_sha256[[1L]],
+    normalization_method = calendar$normalization_method[[1L]],
+    normalization_version = calendar$normalization_version[[1L]],
+    reviewer = calendar$reviewer[[1L]],
+    reviewed_at = calendar$reviewed_at[[1L]],
+    review_attestation = calendar$review_attestation[[1L]],
+    calendar_fingerprint = calendar$calendar_fingerprint[[1L]]
+  )
+}
+
 .brf_b3_terminal_fingerprint <- function(row) {
   payload <- unclass(row)
   payload$terminal_fingerprint <- NULL
@@ -780,19 +1311,25 @@ brf_b3_indicators_read <- function(
 #' [positionsizer::ps_b3_bit_final_settlement()]. This helper validates source
 #' data only: every row is explicitly marked `execution_supported = FALSE`.
 #'
-#' No calendar date is guessed from weekdays. Supply `posting_date` only after
-#' resolving the following-business-day posting through an official B3
-#' calendar; otherwise the output keeps the one-business-day lag and an
-#' unresolved posting date.
+#' No calendar date is guessed from weekdays. Prefer `calendar_evidence` from
+#' [brf_b3_calendar_evidence_read()], which proves the first B3 business day
+#' after expiry from a complete, hashed and causally available interval.
+#' `posting_date` remains available for compatibility, but a bare caller date
+#' is explicitly retained as unvalidated. Without either input, the output
+#' keeps the one-business-day lag and an unresolved posting date.
 #'
 #' @param settlements Parsed BVBG.187 settlement rows, including final status
 #'   and source provenance.
 #' @param indicators Output from [brf_b3_indicators_read()].
 #' @param lifecycle Output from [brf_b3_contract_lifecycle_read()].
-#' @param posting_date Optional official cash-posting date, scalar or one per
-#'   assembled terminal row.
+#' @param posting_date Optional cash-posting date, scalar or one per
+#'   assembled terminal row. Retained for compatibility and never labelled as
+#'   calendar-validated.
 #' @param strict Whether non-final statuses or reconciliation mismatches are
 #'   errors. Missing inputs always fail closed.
+#' @param calendar_evidence Optional versioned output from
+#'   [brf_b3_calendar_evidence_read()]. It cannot be combined with
+#'   `posting_date`.
 #' @return A source-validation sidecar with reconciled BIT terminal prices,
 #'   availability timestamps, provenance and deterministic row fingerprints.
 #' @export
@@ -800,7 +1337,8 @@ brf_b3_bit_terminal_assemble <- function(settlements,
                                          indicators,
                                          lifecycle,
                                          posting_date = NULL,
-                                         strict = TRUE) {
+                                         strict = TRUE,
+                                         calendar_evidence = NULL) {
   for (object_name in c("settlements", "indicators", "lifecycle")) {
     object <- get(object_name, inherits = FALSE)
     if (!inherits(object, "data.frame") || !nrow(object)) {
@@ -954,9 +1492,23 @@ brf_b3_bit_terminal_assemble <- function(settlements,
   ind_key <- paste(ind$reference_date, ind$canonical_indicator, sep = "|")
   ind <- ind[!duplicated(ind_key, fromLast = TRUE), , drop = FALSE]
 
+  if (!is.null(posting_date) && !is.null(calendar_evidence)) {
+    stop(
+      "Supply either posting_date or calendar_evidence, not both.",
+      call. = FALSE
+    )
+  }
+  validated_calendar <- NULL
+  if (!is.null(calendar_evidence)) {
+    validated_calendar <- .brf_b3_calendar_validate(calendar_evidence)
+  }
   if (is.null(posting_date)) {
     posting_date <- rep(as.Date(NA), nrow(life))
-    posting_status <- rep("requires_official_b3_calendar", nrow(life))
+    posting_status <- if (is.null(validated_calendar)) {
+      rep("requires_official_b3_calendar", nrow(life))
+    } else {
+      rep("official_b3_business_day_calendar", nrow(life))
+    }
   } else {
     posting_date <- tryCatch(
       as.Date(posting_date),
@@ -1079,11 +1631,42 @@ brf_b3_bit_terminal_assemble <- function(settlements,
       )
     }
     indicator_available_at <- indicator_rows$available_at[[1L]]
+    calendar_provenance <- list(
+      available_at = as.POSIXct(NA_real_, origin = "1970-01-01", tz = "UTC"),
+      calendar_schema_id = NA_character_,
+      calendar_schema_version = NA_integer_,
+      calendar_scope = NA_character_,
+      calendar_id = NA_character_,
+      calendar_kind = NA_character_,
+      source_reference = NA_character_,
+      source_document_file = NA_character_,
+      source_document_sha256 = NA_character_,
+      normalized_file = NA_character_,
+      normalized_sha256 = NA_character_,
+      normalization_method = NA_character_,
+      normalization_version = NA_character_,
+      reviewer = NA_character_,
+      reviewed_at = as.POSIXct(
+        NA_real_,
+        origin = "1970-01-01",
+        tz = "UTC"
+      ),
+      review_attestation = NA_character_,
+      calendar_fingerprint = NA_character_
+    )
+    if (!is.null(validated_calendar)) {
+      calendar_provenance <- .brf_b3_calendar_resolve_posting(
+        validated_calendar,
+        session_date
+      )
+      posting_date[[i]] <- calendar_provenance$posting_date
+    }
     terminal_available_at <- max(c(
       life$available_at[[i]],
       settlement_row$available_at[[1L]],
-      indicator_available_at
-    ))
+      indicator_available_at,
+      calendar_provenance$available_at
+    ), na.rm = TRUE)
     row <- data.frame(
       contract = contract,
       root = "BIT",
@@ -1115,6 +1698,38 @@ brf_b3_bit_terminal_assemble <- function(settlements,
         calculation$cash_available_business_day_lag,
       cash_posting_date = posting_date[[i]],
       cash_posting_date_status = posting_status[[i]],
+      cash_posting_calendar_schema_id =
+        calendar_provenance$calendar_schema_id,
+      cash_posting_calendar_schema_version =
+        calendar_provenance$calendar_schema_version,
+      cash_posting_calendar_scope =
+        calendar_provenance$calendar_scope,
+      cash_posting_calendar_id = calendar_provenance$calendar_id,
+      cash_posting_calendar_kind = calendar_provenance$calendar_kind,
+      cash_posting_calendar_available_at =
+        calendar_provenance$available_at,
+      cash_posting_calendar_source_reference =
+        calendar_provenance$source_reference,
+      cash_posting_calendar_source_document_file =
+        calendar_provenance$source_document_file,
+      cash_posting_calendar_source_document_sha256 =
+        calendar_provenance$source_document_sha256,
+      cash_posting_calendar_normalized_file =
+        calendar_provenance$normalized_file,
+      cash_posting_calendar_normalized_sha256 =
+        calendar_provenance$normalized_sha256,
+      cash_posting_calendar_normalization_method =
+        calendar_provenance$normalization_method,
+      cash_posting_calendar_normalization_version =
+        calendar_provenance$normalization_version,
+      cash_posting_calendar_reviewer =
+        calendar_provenance$reviewer,
+      cash_posting_calendar_reviewed_at =
+        calendar_provenance$reviewed_at,
+      cash_posting_calendar_review_attestation =
+        calendar_provenance$review_attestation,
+      cash_posting_calendar_fingerprint =
+        calendar_provenance$calendar_fingerprint,
       lifecycle_available_at = life$available_at[[i]],
       lifecycle_source_file = life$source_file[[i]],
       lifecycle_source_sha256 = life$source_sha256[[i]],

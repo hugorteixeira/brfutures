@@ -9,7 +9,8 @@ brf_b3_bit_terminal_assemble(
   indicators,
   lifecycle,
   posting_date = NULL,
-  strict = TRUE
+  strict = TRUE,
+  calendar_evidence = NULL
 )
 }
 \arguments{
@@ -20,11 +21,16 @@ and source provenance.}
 
 \item{lifecycle}{Output from [brf_b3_contract_lifecycle_read()].}
 
-\item{posting_date}{Optional official cash-posting date, scalar or one per
-assembled terminal row.}
+\item{posting_date}{Optional cash-posting date, scalar or one per
+assembled terminal row. Retained for compatibility and never labelled as
+calendar-validated.}
 
 \item{strict}{Whether non-final statuses or reconciliation mismatches are
 errors. Missing inputs always fail closed.}
+
+\item{calendar_evidence}{Optional versioned output from
+[brf_b3_calendar_evidence_read()]. It cannot be combined with
+`posting_date`.}
 }
 \value{
 A source-validation sidecar with reconciled BIT terminal prices,
@@ -38,8 +44,10 @@ The formula and half-up rounding are delegated to
 data only: every row is explicitly marked `execution_supported = FALSE`.
 }
 \details{
-No calendar date is guessed from weekdays. Supply `posting_date` only after
-resolving the following-business-day posting through an official B3
-calendar; otherwise the output keeps the one-business-day lag and an
-unresolved posting date.
+No calendar date is guessed from weekdays. Prefer `calendar_evidence` from
+[brf_b3_calendar_evidence_read()], which proves the first B3 business day
+after expiry from a complete, hashed and causally available interval.
+`posting_date` remains available for compatibility, but a bare caller date
+is explicitly retained as unvalidated. Without either input, the output
+keeps the one-business-day lag and an unresolved posting date.
 }
