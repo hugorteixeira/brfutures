@@ -249,6 +249,17 @@ di_3y <- build_continuous_di(
   strict_target = TRUE,
   include_pnl = TRUE
 )
+
+# Build the serializable daily bundle used by an execution engine. The
+# synthetic series remains signal-only; cash P&L uses the real contract's
+# official PU adjustment through positionsizer::ps_di_session_settlement().
+di_3y_bundle <- build_continuous_di_bundle(
+  data = di_data,
+  target_tenor = 3,
+  tenor_unit = "years",
+  allowed_maturities = "F",
+  synthetic_ticker = "DI1FUT_3Y_F"
+)
 ```
 
 The continuous futures functions support:
@@ -259,6 +270,23 @@ The continuous futures functions support:
 - **Multi-root support**: Include additional roots for historical continuity
 
 ### DI selection and roll safety contract
+
+`build_continuous_di_bundle()` is the durable daily execution transport. It
+serializes the adjusted `signal_series` separately from `execution_series`,
+`di_continuous_contracts`, full `di_roll_events`, `official_sessions`,
+versioned `contract_specs`, modelled `cost_models`, provenance, row counts,
+and SHA-256 fingerprints. DI1 uses `pnl_formula_id = "di1_official_pu"`:
+rates are signal coordinates, while real fills, settlement and P&L use raw PU
+in BRL with a point multiplier of one.
+
+The bundle never fabricates an adjustment publication time or an intraday roll
+clock. `adjustment_available_at` is populated only from a timestamp present in
+the official source row. If any required timestamp, final adjustment, or
+provenance row is missing, the bundle remains valid for signals but its
+manifest sets `execution_supported = FALSE` and lists the blockers. Roll events
+carry session order and both real-contract legs; their informational PU gap has
+`roll_gap_pnl = 0`. Configured fees and slippage are versioned and explicitly
+labelled as modelled rather than observed exchange costs.
 
 `build_continuous_di()` is deliberately stricter than a generic continuous
 future. With `selection_mode = "auto"`, an integer yearly tenor restricted to
