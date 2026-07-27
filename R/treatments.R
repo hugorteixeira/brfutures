@@ -756,7 +756,8 @@
   return(data)
 }
 .brf_add_futures_bit <- function(data, ticker) {
-  conversion_date <- as.Date("2025-06-16")
+  specification <- .brf_b3_bit_contract_specification()
+  conversion_date <- specification$position_conversion_effective_date
   dates <- if (xts::is.xts(data)) {
     as.Date(zoo::index(data))
   } else if (is.data.frame(data) && "date" %in% names(data)) {
@@ -783,15 +784,22 @@
       call. = FALSE
     )
   }
-  multipliers <- ifelse(dates < conversion_date, 0.1, 0.01)
-  tick_values <- 20 * multipliers
+  multipliers <- ifelse(
+    dates < conversion_date,
+    specification$legacy_contract_size_btc,
+    specification$current_contract_size_btc
+  )
+  tick_values <- specification$tick_size_brl_per_btc * multipliers
   regimes <- unique(multipliers[is.finite(multipliers)])
 
   if (xts::is.xts(data)) {
     if (!"TickSize" %in% colnames(data)) {
-      data <- cbind(data, TickSize = rep(20, NROW(data)))
+      data <- cbind(
+        data,
+        TickSize = rep(specification$tick_size_brl_per_btc, NROW(data))
+      )
     } else {
-      data[, "TickSize"] <- 20
+      data[, "TickSize"] <- specification$tick_size_brl_per_btc
     }
     if (!"TickValue" %in% colnames(data)) {
       data <- cbind(data, TickValue = tick_values)
@@ -804,7 +812,7 @@
       data[, "Multiplier"] <- multipliers
     }
   } else if (is.data.frame(data)) {
-    data$TickSize <- 20
+    data$TickSize <- specification$tick_size_brl_per_btc
     data$TickValue <- tick_values
     data$Multiplier <- multipliers
   }
@@ -814,24 +822,29 @@
       data,
       slippage = NULL,
       fees = NULL,
-      ticksize = 20,
+      ticksize = specification$tick_size_brl_per_btc,
       multiplier = regimes[[1L]],
-      tickvalue = 20 * regimes[[1L]]
+      tickvalue = specification$tick_size_brl_per_btc * regimes[[1L]]
     )
     FinancialInstrument::currency("BRL")
     FinancialInstrument::future(
       ticker,
       currency = "BRL",
       multiplier = regimes[[1L]],
-      tick_size = 20,
+      tick_size = specification$tick_size_brl_per_btc,
       identifiers = list(
-        specs_source = "B3 contract specification and Circular Letter 013/2025-VPC",
+        specs_source = specification$source,
         pnl_formula_id = "linear_brl",
         final_settlement_formula_id =
-          "b3_bit_final_settlement_nqbtcs_fx_v1",
+          "b3_bit_final_settlement_nqbtcs_fx_v2",
         final_settlement_index = "NQBTCS",
+        final_settlement_source_indicator = "BTCLIQUSD",
         final_settlement_fx =
           "B3 BRL per USD rate for settlement in one business day",
+        final_settlement_fx_source_indicator = "RTDOL-D1",
+        final_settlement_direct_brl_source_indicator = "RTBITLIQ",
+        final_settlement_rounding_rule =
+          "official_adjstdqt_or_half_up_2dp",
         final_settlement_cash_lag_business_days = 1L
       ),
       overwrite = TRUE
@@ -842,7 +855,7 @@
     # attrs so downstream code must dispatch by date.
     attr(data, "slippage") <- NULL
     attr(data, "fees") <- NULL
-    attr(data, "ticksize") <- 20
+    attr(data, "ticksize") <- specification$tick_size_brl_per_btc
     attr(data, "tickvalue") <- NULL
     attr(data, "multiplier") <- NULL
     existing_instrument <- FinancialInstrument::getInstrument(
@@ -855,17 +868,29 @@
   }
   attr(data, "contract_model") <- "versioned_linear_brl"
   attr(data, "position_conversion_date") <- conversion_date
-  attr(data, "position_conversion_asof_date") <- as.Date("2025-06-13")
-  attr(data, "position_conversion_ratio") <- 10
+  attr(data, "position_conversion_asof_date") <-
+    specification$position_conversion_asof_date
+  attr(data, "position_conversion_ratio") <-
+    specification$position_conversion_ratio
+  attr(data, "administrative_position_transform") <-
+    specification$administrative_position_transform
   attr(data, "pnl_formula_id") <- "linear_brl"
   attr(data, "final_settlement_formula_id") <-
-    "b3_bit_final_settlement_nqbtcs_fx_v1"
+    "b3_bit_final_settlement_nqbtcs_fx_v2"
   attr(data, "final_settlement_index") <- "NQBTCS"
+  attr(data, "final_settlement_source_indicator") <- "BTCLIQUSD"
   attr(data, "final_settlement_fx") <-
     "B3 BRL per USD rate for settlement in one business day"
+  attr(data, "final_settlement_fx_source_indicator") <- "RTDOL-D1"
+  attr(data, "final_settlement_direct_brl_source_indicator") <- "RTBITLIQ"
+  attr(data, "final_settlement_rounding_rule") <-
+    "official_adjstdqt_or_half_up_2dp"
   attr(data, "final_settlement_cash_lag_business_days") <- 1L
   attr(data, "execution_specs_source") <-
-    "FinHarvest versioned B3 execution registry; B3 Circular Letter 013/2025-VPC"
+    paste(
+      "FinHarvest versioned B3 execution registry;",
+      specification$source
+    )
   return(data)
 }
 .brf_add_futures_ind <- function(data, ticker) {

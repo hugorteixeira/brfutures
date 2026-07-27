@@ -1,5 +1,5 @@
 .brf_parser_version <- function() {
-  8L
+  9L
 }
 
 .brf_file_has_no_data_message <- function(path) {

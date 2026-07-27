@@ -180,7 +180,16 @@ test_that("BVBG XML parser maps fields and filters futures", {
   xml <- c(
     "<?xml version=\"1.0\" encoding=\"utf-8\"?>",
     "<Document xmlns=\"urn:bvmf.052.01.xsd\">",
+    "  <BizFileHdr><Xchg><BizGrpDesc><BizGrpDtls>",
+    "    <BizGrpIdr>GROUP-217</BizGrpIdr>",
+    "    <BizGrpTp>BVBG.187.01</BizGrpTp>",
+    "    <CreDtAndTm>2026-01-08T19:30:00</CreDtAndTm>",
+    "  </BizGrpDtls></BizGrpDesc></Xchg></BizFileHdr>",
     "  <BizGrp>",
+    "    <AppHdr xmlns=\"urn:iso:std:iso:20022:tech:xsd:head.001.001.01\">",
+    "      <BizMsgIdr>MSG-217</BizMsgIdr>",
+    "      <CreDt>2026-01-08T22:30:00Z</CreDt>",
+    "    </AppHdr>",
     "    <Document xmlns=\"urn:bvmf.217.01.xsd\">",
     "      <PricRpt>",
     "        <TradDt><Dt>2026-01-08</Dt></TradDt>",
@@ -194,7 +203,9 @@ test_that("BVBG XML parser maps fields and filters futures", {
     "          <LastPric Ccy=\"BRL\">68.82</LastPric>",
     "          <RglrTxsQty>672</RglrTxsQty>",
     "          <AdjstdQt Ccy=\"BRL\">68.79</AdjstdQt>",
+    "          <AdjstdQtStin>F</AdjstdQtStin>",
     "          <PrvsAdjstdQt Ccy=\"BRL\">68.99</PrvsAdjstdQt>",
+    "          <PrvsAdjstdQtStin>F</PrvsAdjstdQtStin>",
     "        </FinInstrmAttrbts>",
     "      </PricRpt>",
     "      <PricRpt>",
@@ -222,7 +233,17 @@ test_that("BVBG XML parser maps fields and filters futures", {
   expect_equal(parsed$close, 68.82)
   expect_equal(parsed$trade_count, 672)
   expect_equal(parsed$settlement_price, 68.79)
+  expect_equal(parsed$settlement_status, "F")
   expect_equal(parsed$previous_settlement, 68.99)
+  expect_equal(parsed$previous_settlement_status, "F")
+  expect_equal(
+    parsed$available_at,
+    as.POSIXct("2026-01-08 22:30:00", tz = "UTC")
+  )
+  expect_equal(parsed$source_report_type, "BVBG.187.01")
+  expect_equal(parsed$source_group_id, "GROUP-217")
+  expect_equal(parsed$source_message_id, "MSG-217")
+  expect_match(parsed$source_sha256, "^[0-9a-f]{64}$")
   expect_equal(parsed$source, "xml")
 })
 
@@ -428,12 +449,28 @@ test_that("BIT attrs preserve both official contract-size regimes", {
   expect_equal(attr(spanning, "position_conversion_date"), as.Date("2025-06-16"))
   expect_equal(attr(spanning, "position_conversion_asof_date"), as.Date("2025-06-13"))
   expect_equal(attr(spanning, "position_conversion_ratio"), 10)
+  expect_identical(
+    attr(spanning, "administrative_position_transform"),
+    "open_quantity_multiply_10"
+  )
   expect_identical(attr(spanning, "pnl_formula_id"), "linear_brl")
   expect_identical(
     attr(spanning, "final_settlement_formula_id"),
-    "b3_bit_final_settlement_nqbtcs_fx_v1"
+    "b3_bit_final_settlement_nqbtcs_fx_v2"
   )
   expect_identical(attr(spanning, "final_settlement_index"), "NQBTCS")
+  expect_identical(
+    attr(spanning, "final_settlement_source_indicator"),
+    "BTCLIQUSD"
+  )
+  expect_identical(
+    attr(spanning, "final_settlement_fx_source_indicator"),
+    "RTDOL-D1"
+  )
+  expect_identical(
+    attr(spanning, "final_settlement_direct_brl_source_indicator"),
+    "RTBITLIQ"
+  )
   expect_identical(
     attr(spanning, "final_settlement_cash_lag_business_days"),
     1L
@@ -457,7 +494,7 @@ test_that("BIT attrs preserve both official contract-size regimes", {
   )
   expect_identical(
     original_instrument$identifiers$final_settlement_formula_id,
-    "b3_bit_final_settlement_nqbtcs_fx_v1"
+    "b3_bit_final_settlement_nqbtcs_fx_v2"
   )
 
   current <- brfutures:::`.brf_add_futures_bit`(prices[2, ], "BITFUT_CURRENT")

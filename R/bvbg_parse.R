@@ -104,12 +104,73 @@
     stop("File '", path, "' not found.", call. = FALSE)
   }
   doc <- xml2::read_xml(path)
-  ns <- xml2::xml_ns(doc)
-  ns_key <- names(ns)[grepl("bvmf\\.217\\.01|217", ns, ignore.case = TRUE)]
-  if (length(ns_key)) {
-    nodes <- xml2::xml_find_all(doc, paste0(".//", ns_key[1], ":PricRpt"), ns)
+  source_report_type <- .brf_bvbg_xml_text(
+    doc,
+    ".//*[local-name()='BizGrpDtls']/*[local-name()='BizGrpTp']"
+  )
+  source_group_id <- .brf_bvbg_xml_text(
+    doc,
+    ".//*[local-name()='BizGrpDtls']/*[local-name()='BizGrpIdr']"
+  )
+  source_group_created_at <- .brf_bvbg_xml_text(
+    doc,
+    ".//*[local-name()='BizGrpDtls']/*[local-name()='CreDtAndTm']"
+  )
+  source_file <- basename(path)
+  source_sha256 <- .brf_b3_source_file_sha256(path)
+  groups <- xml2::xml_find_all(
+    doc,
+    ".//*[local-name()='BizGrp']"
+  )
+  available_raw <- character()
+  message_raw <- character()
+  if (length(groups)) {
+    node_list <- vector("list", length(groups))
+    available_raw <- rep(NA_character_, length(groups))
+    message_raw <- rep(NA_character_, length(groups))
+    kept <- 0L
+    for (group_index in seq_along(groups)) {
+      group_children <- xml2::xml_children(groups[[group_index]])
+      group_names <- xml2::xml_name(group_children)
+      document_index <- match("Document", group_names)
+      if (is.na(document_index)) {
+        next
+      }
+      document_children <- xml2::xml_children(
+        group_children[[document_index]]
+      )
+      price_index <- match("PricRpt", xml2::xml_name(document_children))
+      if (is.na(price_index)) {
+        next
+      }
+      kept <- kept + 1L
+      node_list[[kept]] <- document_children[[price_index]]
+      app_index <- match("AppHdr", group_names)
+      if (!is.na(app_index)) {
+        app_children <- xml2::xml_children(group_children[[app_index]])
+        app_names <- xml2::xml_name(app_children)
+        created_index <- match("CreDt", app_names)
+        message_index <- match("BizMsgIdr", app_names)
+        if (!is.na(created_index)) {
+          available_raw[[kept]] <- trimws(xml2::xml_text(
+            app_children[[created_index]]
+          ))
+        }
+        if (!is.na(message_index)) {
+          message_raw[[kept]] <- trimws(xml2::xml_text(
+            app_children[[message_index]]
+          ))
+        }
+      }
+    }
+    nodes <- node_list[seq_len(kept)]
+    available_raw <- available_raw[seq_len(kept)]
+    message_raw <- message_raw[seq_len(kept)]
   } else {
-    nodes <- xml2::xml_find_all(doc, ".//*[local-name()='PricRpt']")
+    fallback <- xml2::xml_find_all(doc, ".//*[local-name()='PricRpt']")
+    nodes <- lapply(seq_along(fallback), function(i) fallback[[i]])
+    available_raw <- rep(NA_character_, length(nodes))
+    message_raw <- rep(NA_character_, length(nodes))
   }
   if (!length(nodes)) {
     out <- .brf_empty_bulletin()
@@ -137,6 +198,17 @@
   last_bid <- rep(NA_character_, n)
   last_ask <- rep(NA_character_, n)
   adjustment_value <- rep(NA_character_, n)
+  available_at <- as.POSIXct(
+    rep(NA_real_, n),
+    origin = "1970-01-01",
+    tz = "UTC"
+  )
+  source_message_id <- rep(NA_character_, n)
+  source_instrument_id <- rep(NA_character_, n)
+  settlement_status <- rep(NA_character_, n)
+  previous_settlement_status <- rep(NA_character_, n)
+  available_at <- .brf_b3_parse_timestamp(available_raw)
+  source_message_id <- message_raw
 
   for (i in seq_len(n)) {
     node <- nodes[[i]]
@@ -171,6 +243,22 @@
         }
       }
     }
+    instrument_node <- children[child_names == "FinInstrmId"]
+    if (length(instrument_node)) {
+      instrument_children <- xml2::xml_children(instrument_node[[1L]])
+      other_index <- match("OthrId", xml2::xml_name(instrument_children))
+      if (!is.na(other_index)) {
+        other_children <- xml2::xml_children(
+          instrument_children[[other_index]]
+        )
+        id_index <- match("Id", xml2::xml_name(other_children))
+        if (!is.na(id_index)) {
+          source_instrument_id[i] <- trimws(xml2::xml_text(
+            other_children[[id_index]]
+          ))
+        }
+      }
+    }
     attr_node <- children[child_names == "FinInstrmAttrbts"]
     if (length(attr_node)) {
       attr_children <- xml2::xml_children(attr_node[[1]])
@@ -190,7 +278,9 @@
         volume[i] <- attr_map["NtlFinVol"]
         volume_regular[i] <- attr_map["NtlRglrVol"]
         settlement_price[i] <- attr_map["AdjstdQt"]
+        settlement_status[i] <- attr_map["AdjstdQtStin"]
         previous_settlement[i] <- attr_map["PrvsAdjstdQt"]
+        previous_settlement_status[i] <- attr_map["PrvsAdjstdQtStin"]
         change_percent[i] <- attr_map["OscnPctg"]
         change_points[i] <- attr_map["VartnPts"]
         last_bid[i] <- attr_map["BestBidPric"]
@@ -232,6 +322,14 @@
   df <- data.frame(
     date = as.Date(date_vals),
     contract_code = toupper(trimws(as.character(contract_code))),
+    available_at = available_at,
+    source_report_type = rep(source_report_type, n),
+    source_group_id = rep(source_group_id, n),
+    source_group_created_at = rep(source_group_created_at, n),
+    source_message_id = source_message_id,
+    source_instrument_id = source_instrument_id,
+    source_file = rep(source_file, n),
+    source_sha256 = rep(source_sha256, n),
     open_interest = open_interest,
     trade_count = trade_count,
     contracts_traded = contracts_traded,
@@ -242,7 +340,9 @@
     average_price = average_price,
     close = close,
     settlement_price = settlement_price,
+    settlement_status = settlement_status,
     previous_settlement = previous_settlement,
+    previous_settlement_status = previous_settlement_status,
     change_percent = change_percent,
     change_points = change_points,
     last_bid = last_bid,

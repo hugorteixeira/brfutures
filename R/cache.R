@@ -250,6 +250,19 @@
     return(TRUE)
   }
 
+  # Parser v9 adds official BVBG message timestamps, status fields and source
+  # provenance. Legacy HTML rows cannot contain that XML evidence, so their v8
+  # parsed caches remain semantically current. BVBG v8 caches deliberately
+  # reparse from the retained raw XML.
+  if (identical(version, 8L)) {
+    source <- if ("source" %in% names(df)) {
+      tolower(trimws(as.character(df$source)))
+    } else {
+      character()
+    }
+    return(!length(source) || !any(source == "xml", na.rm = TRUE))
+  }
+
   # Parser v8 only added the relational DI settlement-scale repair. Keep v7
   # files that the new repair would not change, while forcing the affected
   # bulletin(s) through the parser again instead of reparsing the full history.

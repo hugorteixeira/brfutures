@@ -16,6 +16,7 @@ License: GPL (>= 3)
 Encoding: UTF-8
 LazyData: true
 Imports:
+    digest,
     httr,
     xml2,
     rvest,

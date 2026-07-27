@@ -42,6 +42,27 @@ separate `NQBTCS × official B3 BRL/USD` terminal-settlement kernel. The raw
 official index and FX observations remain required inputs; no close-price
 fallback is permitted.
 
+The source boundary is explicit. `brf_b3_contract_lifecycle_fetch()` owns the
+official `INyymmdd.zip`/BVBG.028 collection. It keeps the compressed archive,
+extracts snapshots sequentially with bounded temporary disk, and returns
+either the newest official `AppHdr/CreDt` view or every causal revision with
+`latest = FALSE`. Its lifecycle reader scans bounded `BizGrp` blocks and never
+constructs a DOM for the hundreds-of-megabytes BVBG.028 file.
+`brf_b3_settlements_fetch()` owns historical
+`SPRDyymmdd.zip`/BVBG.187 settlement rows even before the normal XML cutover,
+without changing that global source rule. `brf_b3_indicators_fetch()` owns the
+`IDyymmdd.ex_`/`Indic.txt` collection and retains immutable, content-addressed
+availability manifests instead of overwriting earlier evidence. All outputs identify
+`brfutures_b3_bit_sources_v1` and retain content SHA-256 provenance.
+Because `Indic.txt` has no embedded publication timestamp, a new historical
+fetch requires externally evidenced `available_at` and fails closed without
+it. `brf_b3_bit_terminal_assemble()` then reconciles final BVBG.187 `AdjstdQt`,
+`BTCLIQUSD × RTDOL-D1` rounded half-up to two decimals, and `RTBITLIQ`.
+
+These helpers only prove the terminal source inputs. Their assembled rows are
+deliberately marked `execution_supported = FALSE`; no execution engine may
+infer exact BIT support merely because the source reconciliation succeeds.
+
 ---
 
 ## 📦 Installation
