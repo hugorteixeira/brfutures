@@ -825,7 +825,14 @@
       multiplier = regimes[[1L]],
       tick_size = 20,
       identifiers = list(
-        specs_source = "B3 contract specification and Circular Letter 013/2025-VPC"
+        specs_source = "B3 contract specification and Circular Letter 013/2025-VPC",
+        pnl_formula_id = "linear_brl",
+        final_settlement_formula_id =
+          "b3_bit_final_settlement_nqbtcs_fx_v1",
+        final_settlement_index = "NQBTCS",
+        final_settlement_fx =
+          "B3 BRL per USD rate for settlement in one business day",
+        final_settlement_cash_lag_business_days = 1L
       ),
       overwrite = TRUE
     )
@@ -850,6 +857,13 @@
   attr(data, "position_conversion_date") <- conversion_date
   attr(data, "position_conversion_asof_date") <- as.Date("2025-06-13")
   attr(data, "position_conversion_ratio") <- 10
+  attr(data, "pnl_formula_id") <- "linear_brl"
+  attr(data, "final_settlement_formula_id") <-
+    "b3_bit_final_settlement_nqbtcs_fx_v1"
+  attr(data, "final_settlement_index") <- "NQBTCS"
+  attr(data, "final_settlement_fx") <-
+    "B3 BRL per USD rate for settlement in one business day"
+  attr(data, "final_settlement_cash_lag_business_days") <- 1L
   attr(data, "execution_specs_source") <-
     "FinHarvest versioned B3 execution registry; B3 Circular Letter 013/2025-VPC"
   return(data)

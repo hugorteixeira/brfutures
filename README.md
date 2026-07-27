@@ -35,6 +35,13 @@ resolution, and continuous-contract construction. The public DI conversion
 helpers remain available here for compatibility, but the formula itself is
 centralized in `positionsizer`.
 
+BIT metadata is date-aware: the daily kernel is linear in BRL, the contract
+size changes from `0.1` to `0.01` BTC on 2025-06-16 with the corresponding
+ten-for-one administrative position conversion, and expiry identifies the
+separate `NQBTCS × official B3 BRL/USD` terminal-settlement kernel. The raw
+official index and FX observations remain required inputs; no close-price
+fallback is permitted.
+
 ---
 
 ## 📦 Installation

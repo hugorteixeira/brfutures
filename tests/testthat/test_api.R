@@ -428,6 +428,16 @@ test_that("BIT attrs preserve both official contract-size regimes", {
   expect_equal(attr(spanning, "position_conversion_date"), as.Date("2025-06-16"))
   expect_equal(attr(spanning, "position_conversion_asof_date"), as.Date("2025-06-13"))
   expect_equal(attr(spanning, "position_conversion_ratio"), 10)
+  expect_identical(attr(spanning, "pnl_formula_id"), "linear_brl")
+  expect_identical(
+    attr(spanning, "final_settlement_formula_id"),
+    "b3_bit_final_settlement_nqbtcs_fx_v1"
+  )
+  expect_identical(attr(spanning, "final_settlement_index"), "NQBTCS")
+  expect_identical(
+    attr(spanning, "final_settlement_cash_lag_business_days"),
+    1L
+  )
 
   original <- brfutures:::`.brf_add_futures_bit`(prices[1, ], "BITFUT_OLD")
   expect_equal(attr(original, "ticksize"), 20)
@@ -439,6 +449,15 @@ test_that("BIT attrs preserve both official contract-size regimes", {
   expect_equal(
     as.numeric(original[, c("TickSize", "TickValue", "Multiplier")]),
     as.numeric(spanning[1, c("TickSize", "TickValue", "Multiplier")])
+  )
+  original_instrument <- FinancialInstrument::getInstrument("BITFUT_OLD")
+  expect_identical(
+    original_instrument$identifiers$pnl_formula_id,
+    "linear_brl"
+  )
+  expect_identical(
+    original_instrument$identifiers$final_settlement_formula_id,
+    "b3_bit_final_settlement_nqbtcs_fx_v1"
   )
 
   current <- brfutures:::`.brf_add_futures_bit`(prices[2, ], "BITFUT_CURRENT")
