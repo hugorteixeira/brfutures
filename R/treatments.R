@@ -834,18 +834,22 @@
       tick_size = specification$tick_size_brl_per_btc,
       identifiers = list(
         specs_source = specification$source,
-        pnl_formula_id = "linear_brl",
+        pnl_formula_id = specification$pnl_formula_id,
         final_settlement_formula_id =
-          "b3_bit_final_settlement_nqbtcs_fx_v2",
-        final_settlement_index = "NQBTCS",
-        final_settlement_source_indicator = "BTCLIQUSD",
+          specification$final_settlement_formula_id,
+        final_settlement_index = specification$final_settlement_index,
+        final_settlement_source_indicator =
+          specification$final_settlement_source_indicator,
         final_settlement_fx =
-          "B3 BRL per USD rate for settlement in one business day",
-        final_settlement_fx_source_indicator = "RTDOL-D1",
-        final_settlement_direct_brl_source_indicator = "RTBITLIQ",
+          specification$final_settlement_fx,
+        final_settlement_fx_source_indicator =
+          specification$final_settlement_fx_source_indicator,
+        final_settlement_direct_brl_source_indicator =
+          specification$final_settlement_direct_brl_source_indicator,
         final_settlement_rounding_rule =
-          "official_adjstdqt_or_half_up_2dp",
-        final_settlement_cash_lag_business_days = 1L
+          specification$final_settlement_rounding_rule,
+        final_settlement_cash_lag_business_days =
+          specification$final_settlement_cash_lag_business_days
       ),
       overwrite = TRUE
     )
@@ -874,21 +878,26 @@
     specification$position_conversion_ratio
   attr(data, "administrative_position_transform") <-
     specification$administrative_position_transform
-  attr(data, "pnl_formula_id") <- "linear_brl"
+  attr(data, "pnl_formula_id") <- specification$pnl_formula_id
   attr(data, "final_settlement_formula_id") <-
-    "b3_bit_final_settlement_nqbtcs_fx_v2"
-  attr(data, "final_settlement_index") <- "NQBTCS"
-  attr(data, "final_settlement_source_indicator") <- "BTCLIQUSD"
+    specification$final_settlement_formula_id
+  attr(data, "final_settlement_index") <-
+    specification$final_settlement_index
+  attr(data, "final_settlement_source_indicator") <-
+    specification$final_settlement_source_indicator
   attr(data, "final_settlement_fx") <-
-    "B3 BRL per USD rate for settlement in one business day"
-  attr(data, "final_settlement_fx_source_indicator") <- "RTDOL-D1"
-  attr(data, "final_settlement_direct_brl_source_indicator") <- "RTBITLIQ"
+    specification$final_settlement_fx
+  attr(data, "final_settlement_fx_source_indicator") <-
+    specification$final_settlement_fx_source_indicator
+  attr(data, "final_settlement_direct_brl_source_indicator") <-
+    specification$final_settlement_direct_brl_source_indicator
   attr(data, "final_settlement_rounding_rule") <-
-    "official_adjstdqt_or_half_up_2dp"
-  attr(data, "final_settlement_cash_lag_business_days") <- 1L
+    specification$final_settlement_rounding_rule
+  attr(data, "final_settlement_cash_lag_business_days") <-
+    specification$final_settlement_cash_lag_business_days
   attr(data, "execution_specs_source") <-
     paste(
-      "FinHarvest versioned B3 execution registry;",
+      paste0(specification$registry_source, ";"),
       specification$source
     )
   return(data)

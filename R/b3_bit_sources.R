@@ -6,62 +6,6 @@
   1L
 }
 
-.brf_b3_bit_contract_specification <- function() {
-  list(
-    legacy_contract_size_btc = 0.1,
-    current_contract_size_btc = 0.01,
-    tick_size_brl_per_btc = 20,
-    position_conversion_asof_date = as.Date("2025-06-13"),
-    position_conversion_effective_date = as.Date("2025-06-16"),
-    position_conversion_ratio = 10,
-    administrative_position_transform = "open_quantity_multiply_10",
-    source = "B3 Circular Letter 013/2025-VPC"
-  )
-}
-
-.brf_b3_bit_contract_size_metadata <- function(contract_size_btc) {
-  specification <- .brf_b3_bit_contract_specification()
-  legacy <- is.finite(contract_size_btc) &&
-    isTRUE(all.equal(
-      contract_size_btc,
-      specification$legacy_contract_size_btc,
-      tolerance = 1e-12
-    ))
-  current <- is.finite(contract_size_btc) &&
-    isTRUE(all.equal(
-      contract_size_btc,
-      specification$current_contract_size_btc,
-      tolerance = 1e-12
-    ))
-  list(
-    contract_size_regime = if (legacy) {
-      "legacy_0.1_btc"
-    } else if (current) {
-      "current_0.01_btc"
-    } else {
-      "source_observed_other"
-    },
-    contract_size_effective_from = if (current) {
-      specification$position_conversion_effective_date
-    } else {
-      as.Date(NA)
-    },
-    contract_size_effective_to = if (legacy) {
-      specification$position_conversion_asof_date
-    } else {
-      as.Date(NA)
-    },
-    position_conversion_asof_date =
-      specification$position_conversion_asof_date,
-    position_conversion_effective_date =
-      specification$position_conversion_effective_date,
-    position_conversion_ratio = specification$position_conversion_ratio,
-    administrative_position_transform =
-      specification$administrative_position_transform,
-    specification_source = specification$source
-  )
-}
-
 .brf_b3_source_file_sha256 <- function(path) {
   if (!is.character(path) || length(path) != 1L ||
       is.na(path) || !nzchar(path) || !file.exists(path)) {
