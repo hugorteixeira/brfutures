@@ -1,7 +1,7 @@
 Package: brfutures
 Type: Package
 Title: Brazilian Futures Data Tools
-Version: 0.0.1
+Version: 0.0.2
 Authors@R: person(
     given = "Hugo",
     family = "Rzepian Teixeira",

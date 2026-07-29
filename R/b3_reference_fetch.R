@@ -642,13 +642,20 @@ brf_b3_contract_lifecycle_fetch <- function(date,
 #' The selected BVBG.187 XML is retained in a SHA-256-addressed cache. Official
 #' `AdjstdQtStin` and `PrvsAdjstdQtStin`, application-header availability,
 #' message/instrument identifiers and source fingerprints are preserved.
+#' `available_at` is the `AppHdr/CreDt` of the complete `PricRpt` group.
+#' `settlement_available_at` is the same observed timestamp when that group
+#' contains `AdjstdQt`; it is never synthesized from the report date. This
+#' settlement-specific clock is mandatory in
+#' `brfutures_b3_bit_sources_v2`; persisted version-1 rows are incompatible
+#' with exact execution and must be rebuilt from the retained official XML.
 #'
 #' @param date B3 report date.
 #' @param root B3 futures root to retain. Defaults to `"BIT"`.
 #' @param cache_dir Optional reference cache root.
 #' @param refresh Whether to download even when a cached BVBG.187 source exists.
 #' @param quiet Suppress download progress messages.
-#' @return Canonical B3 settlement rows for the requested root and date.
+#' @return Canonical B3 settlement rows for the requested root and date,
+#'   including UTC `available_at` and `settlement_available_at` evidence.
 #' @export
 brf_b3_settlements_fetch <- function(date,
                                      root = "BIT",
@@ -723,10 +730,14 @@ brf_b3_settlements_fetch <- function(date,
   out <- .brf_bind_rows(frames)
   out$date <- as.Date(out$date)
   out$available_at <- .brf_b3_parse_timestamp(out$available_at)
+  out$settlement_available_at <- .brf_b3_parse_timestamp(
+    out$settlement_available_at
+  )
   out$source_schema_id <- .brf_b3_bit_source_schema_id()
   out$source_schema_version <- .brf_b3_bit_source_schema_version()
   required <- c(
-    "contract_code", "date", "available_at", "settlement_price",
+    "contract_code", "date", "available_at", "settlement_available_at",
+    "settlement_price",
     "settlement_status", "previous_settlement",
     "previous_settlement_status", "source_report_type", "source_file",
     "source_sha256"
@@ -736,6 +747,8 @@ brf_b3_settlements_fetch <- function(date,
   }
   invalid <- is.na(out$contract_code) | !nzchar(out$contract_code) |
     is.na(out$date) | is.na(out$available_at) |
+    is.na(out$settlement_available_at) |
+    out$settlement_available_at > out$available_at |
     is.na(out$source_file) | !nzchar(out$source_file) |
     is.na(out$source_sha256) |
     !grepl("^[0-9a-f]{64}$", out$source_sha256) |

@@ -30,8 +30,15 @@
     source = "fixture",
     stringsAsFactors = FALSE
   )
+  daily <- rbind(old, new)
+  observed <- as.POSIXct(
+    paste(as.character(daily$date), "22:30:00"),
+    tz = "UTC"
+  )
+  daily$available_at <- observed
+  daily$settlement_available_at <- observed
   build_continuous_bundle(
-    rbind(old, new),
+    daily,
     root = "TST",
     days_before_roll = 1L,
     roll_grace_sessions = 0L
@@ -83,7 +90,7 @@ test_that("intraday bundle separates adjusted signal and raw execution domains",
     )
   )
   expect_equal(bundle$manifest$schema_id, "b3_intraday_continuous_v1")
-  expect_equal(bundle$manifest$parent_schema_version, 3L)
+  expect_equal(bundle$manifest$parent_schema_version, 4L)
   expect_equal(bundle$manifest$synthetic_ticker, "TSTFUT_B1_1H")
   expect_equal(bundle$manifest$timestamp_semantics, "bar_open")
   expect_equal(

@@ -11,7 +11,7 @@
 #' official settlement: settlements retain a `Date` and an explicit
 #' end-of-session phase.
 #'
-#' @param daily_bundle A schema-v3 `brf_continuous_bundle` built from official
+#' @param daily_bundle A schema-v4 `brf_continuous_bundle` built from official
 #'   B3 daily data.
 #' @param bars Non-empty data frame of raw intraday dated-contract bars.
 #'   Required columns are `timestamp`, `root`, `contract`, `open`, `high`,
@@ -490,9 +490,9 @@ build_intraday_continuous_bundle <- function(daily_bundle,
   }
   manifest <- daily_bundle$manifest
   if (!identical(manifest$bundle_type, "b3_daily_continuous") ||
-      !identical(as.integer(manifest$schema_version), 3L)) {
+      !identical(as.integer(manifest$schema_version), 4L)) {
     stop(
-      "`daily_bundle` must use b3_daily_continuous schema version 3.",
+      "`daily_bundle` must use b3_daily_continuous schema version 4.",
       call. = FALSE
     )
   }
@@ -501,6 +501,7 @@ build_intraday_continuous_bundle <- function(daily_bundle,
   }
   map_required <- c(
     "date", "active_contract", "signal_contract",
+    "available_at", "settlement_available_at",
     "signal_adjustment_factor", "signal_inverse_factor",
     "order_transform_factor", "order_transform_inverse_factor",
     "order_transform_asof_date", "order_transform_available",
@@ -516,7 +517,7 @@ build_intraday_continuous_bundle <- function(daily_bundle,
   }
   execution_required <- c(
     "date", "root", "contract", "maturity", "last_trade_date",
-    "settlement_price"
+    "settlement_price", "available_at", "settlement_available_at"
   )
   missing_execution <- setdiff(execution_required, names(daily_bundle$execution_data))
   if (length(missing_execution)) {

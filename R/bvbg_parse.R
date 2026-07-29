@@ -312,6 +312,12 @@
     volume <- volume_regular
   }
   settlement_price <- .brf_bvbg_xml_number(settlement_price)
+  settlement_available_at <- available_at
+  settlement_available_at[is.na(settlement_price)] <- as.POSIXct(
+    NA_real_,
+    origin = "1970-01-01",
+    tz = "UTC"
+  )
   previous_settlement <- .brf_bvbg_xml_number(previous_settlement)
   change_percent <- .brf_bvbg_xml_number(change_percent)
   change_points <- .brf_bvbg_xml_number(change_points)
@@ -323,6 +329,7 @@
     date = as.Date(date_vals),
     contract_code = toupper(trimws(as.character(contract_code))),
     available_at = available_at,
+    settlement_available_at = settlement_available_at,
     source_report_type = rep(source_report_type, n),
     source_group_id = rep(source_group_id, n),
     source_group_created_at = rep(source_group_created_at, n),

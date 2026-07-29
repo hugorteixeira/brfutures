@@ -18,7 +18,16 @@
 #' when the nominal target does not. That is an execution-successor fallback,
 #' recorded in the roll schedule, not volume/OI signal mapping.
 #'
-#' Schema v3 serializes
+#' Schema v4 additionally carries two source-observed UTC clocks when they
+#' exist: `available_at`, for the complete official price report, and
+#' `settlement_available_at`, for the official settlement carried by that
+#' report. For BVBG.187 both are the AppHdr/CreDt of the same BizGrp containing
+#' `AdjstdQt`; equality is therefore expected and is not an invented session
+#' timestamp. Legacy HTML input retains typed missing clocks. It remains
+#' economically executable under the deterministic daily session-phase model,
+#' but is ineligible for heterogeneous same-close ordering.
+#'
+#' Schema v4 serializes
 #' `roll_timing_policy = "causal_prebuffer_first_executable"`,
 #' `roll_grace_policy = "symmetric_prebuffer_then_causal_extension"`, and
 #' `signal_coordinate_policy =
@@ -26,9 +35,14 @@
 #'
 #' @param data Non-empty data frame containing daily quotes by real contract.
 #'   Required fields are `date`, `root`, `ticker`, `maturity`,
-#'   `last_trade_date`, `open`, `high`, `low`, `close`, and
-#'   `settlement_price`. Common contract/price aliases are accepted, but the
-#'   official last-trade field must be named `last_trade_date`.
+#'   `last_trade_date`, `open`, `high`, `low`, `close`,
+#'   `settlement_price`. Optional `available_at` and
+#'   `settlement_available_at` clocks must be `POSIXct` vectors explicitly
+#'   tagged UTC when supplied; observed values may not precede their session
+#'   date, and settlement availability may not follow complete-row
+#'   availability. Missing clocks stay typed `NA` and never default to the
+#'   report date. Common contract/price aliases are accepted, but the official
+#'   last-trade field must be named `last_trade_date`.
 #' @param root Character scalar identifying the B3 futures root.
 #' @param days_before_roll Non-negative integer number of calendar days before
 #'   `last_trade_date`. A contract remains active only while
@@ -45,9 +59,9 @@
 #'   expiry still fails. The default is three sessions.
 #' @param adjustment_direction Either `"backward"` (preserve the latest raw
 #'   level) or `"forward"` (preserve the earliest raw level).
-#' @param adjustment_anchor Adjustment anchor. Schema version 3 supports only
+#' @param adjustment_anchor Adjustment anchor. Schema version 4 supports only
 #'   `"official_settlement"`.
-#' @param roll_date_col Roll-date column. Schema version 3 requires
+#' @param roll_date_col Roll-date column. Schema version 4 requires
 #'   `"last_trade_date"`; the argument is explicit to make the convention
 #'   serializable in the bundle manifest.
 #' @param strict Logical scalar. In strict mode, missing metadata, an
@@ -98,7 +112,7 @@ build_continuous_bundle <- function(data,
   if (length(adjustment_anchor) != 1L || is.na(adjustment_anchor) ||
       !identical(as.character(adjustment_anchor), "official_settlement")) {
     stop(
-      "Continuous bundle schema v3 supports only adjustment_anchor = ",
+      "Continuous bundle schema v4 supports only adjustment_anchor = ",
       "'official_settlement'.",
       call. = FALSE
     )
@@ -106,7 +120,7 @@ build_continuous_bundle <- function(data,
   if (length(roll_date_col) != 1L || is.na(roll_date_col) ||
       !identical(as.character(roll_date_col), "last_trade_date")) {
     stop(
-      "Continuous bundle schema v3 requires roll_date_col = ",
+      "Continuous bundle schema v4 requires roll_date_col = ",
       "'last_trade_date'.",
       call. = FALSE
     )
@@ -147,6 +161,7 @@ build_continuous_bundle <- function(data,
   if (!nrow(canonical)) {
     stop("No valid rows remain for exact continuous mapping.", call. = FALSE)
   }
+  .brf_bundle_validate_observed_clocks(canonical)
 
   canonical <- canonical[
     order(canonical$date, canonical$last_trade_date, canonical$maturity, canonical$contract),
@@ -477,10 +492,36 @@ build_continuous_bundle <- function(data,
   execution_supported <- mapping_complete && all(contract_map$marking_supported) &&
     any(contract_map$signal_available) &&
     (!nrow(rolls) || all(rolls$validated))
+  clock_observed <- contract_map$same_close_clock_supported
+  observed_clock_complete <- length(clock_observed) > 0L &&
+    all(clock_observed)
+  clock_dates <- contract_map$date[clock_observed]
+  heterogeneous_same_close_supported <-
+    execution_supported && observed_clock_complete
   manifest <- list(
-    schema_version = 3L,
+    schema_version = 4L,
     bundle_type = "b3_daily_continuous",
     source = "B3 official daily",
+    clock_domain = "observed_official_message_utc_when_available",
+    available_at_required = FALSE,
+    settlement_available_at_required = FALSE,
+    settlement_availability_policy =
+      "same_official_message_when_observed_no_date_fallback",
+    clock_causality_policy =
+      "session_start_utc_le_settlement_available_at_le_available_at",
+    observed_clock_complete = observed_clock_complete,
+    observed_clock_row_count = sum(clock_observed),
+    missing_clock_row_count = sum(!clock_observed),
+    observed_clock_start = if (length(clock_dates)) {
+      min(clock_dates)
+    } else {
+      as.Date(NA)
+    },
+    observed_clock_end = if (length(clock_dates)) {
+      max(clock_dates)
+    } else {
+      as.Date(NA)
+    },
     synthetic_ticker = synthetic_ticker,
     root = main_root,
     data_start = min(contract_map$date),
@@ -543,6 +584,9 @@ build_continuous_bundle <- function(data,
     unmapped_sessions = unmapped_sessions,
     unmapped_reasons = unmapped_reasons,
     execution_supported = execution_supported,
+    daily_session_phase_execution_supported = execution_supported,
+    heterogeneous_same_close_supported =
+      heterogeneous_same_close_supported,
     signal_usage = "signal_only",
     execution_usage = "real_contracts_only",
     row_counts = list(
@@ -587,7 +631,7 @@ build_continuous_bundle <- function(data,
   hit <- hit[hit > 0L]
   if (!length(hit)) {
     if (required) {
-      stop("Missing required column `", label, "` for continuous bundle v2.", call. = FALSE)
+      stop("Missing required column `", label, "` for continuous bundle v4.", call. = FALSE)
     }
     return(NA_character_)
   }
@@ -617,6 +661,18 @@ build_continuous_bundle <- function(data,
       data,
       c("settlement_price", "official_settlement", "settlement"),
       "settlement_price"
+    ),
+    available_at = .brf_bundle_resolve_column(
+      data,
+      c("available_at"),
+      "available_at",
+      required = FALSE
+    ),
+    settlement_available_at = .brf_bundle_resolve_column(
+      data,
+      c("settlement_available_at"),
+      "settlement_available_at",
+      required = FALSE
     ),
     volume = .brf_bundle_resolve_column(data, c("volume"), "volume", required = FALSE),
     volume_qty = .brf_bundle_resolve_column(
@@ -665,6 +721,34 @@ build_continuous_bundle <- function(data,
   as.character(data[[column]])
 }
 
+.brf_bundle_timestamp <- function(data, column, label) {
+  if (is.na(column)) {
+    return(as.POSIXct(
+      rep(NA_real_, nrow(data)),
+      origin = "1970-01-01",
+      tz = "UTC"
+    ))
+  }
+  value <- data[[column]]
+  if (!inherits(value, "POSIXct")) {
+    stop(
+      "Continuous bundle v4 requires `", label,
+      "` to be an observed POSIXct timestamp, not a Date/storage key.",
+      call. = FALSE
+    )
+  }
+  timezone <- attr(value, "tzone", exact = TRUE)
+  if (is.null(timezone) || length(timezone) != 1L ||
+      is.na(timezone) || !identical(as.character(timezone), "UTC")) {
+    stop(
+      "Continuous bundle v4 requires `", label,
+      "` to be explicitly tagged UTC.",
+      call. = FALSE
+    )
+  }
+  as.POSIXct(value, tz = "UTC")
+}
+
 .brf_bundle_canonical_data <- function(data, columns) {
   data.frame(
     .input_row = seq_len(nrow(data)),
@@ -678,6 +762,16 @@ build_continuous_bundle <- function(data,
     low = .brf_bundle_numeric(data, columns$low),
     close = .brf_bundle_numeric(data, columns$close),
     settlement_price = .brf_bundle_numeric(data, columns$settlement_price),
+    available_at = .brf_bundle_timestamp(
+      data,
+      columns$available_at,
+      "available_at"
+    ),
+    settlement_available_at = .brf_bundle_timestamp(
+      data,
+      columns$settlement_available_at,
+      "settlement_available_at"
+    ),
     volume = .brf_bundle_numeric(data, columns$volume),
     volume_qty = .brf_bundle_numeric(data, columns$volume_qty),
     open_interest = .brf_bundle_numeric(data, columns$open_interest),
@@ -686,6 +780,53 @@ build_continuous_bundle <- function(data,
     source = .brf_bundle_character(data, columns$source),
     stringsAsFactors = FALSE
   )
+}
+
+.brf_bundle_validate_observed_clocks <- function(data) {
+  available_observed <- !is.na(data$available_at)
+  settlement_observed <- !is.na(data$settlement_available_at)
+  orphan_settlement <- settlement_observed & !available_observed
+  if (any(orphan_settlement)) {
+    bad <- which(orphan_settlement)[[1L]]
+    stop(
+      "Continuous bundle v4 cannot carry settlement_available_at without ",
+      "the complete-row available_at on ", format(data$date[[bad]]),
+      " for contract '", data$contract[[bad]], "'.",
+      call. = FALSE
+    )
+  }
+  session_start_utc <- as.POSIXct(
+    paste(as.character(data$date), "00:00:00"),
+    tz = "UTC"
+  )
+  before_session <- (
+    available_observed & data$available_at < session_start_utc
+  ) | (
+    settlement_observed &
+      data$settlement_available_at < session_start_utc
+  )
+  before_session[is.na(before_session)] <- FALSE
+  if (any(before_session)) {
+    bad <- which(before_session)[[1L]]
+    stop(
+      "Continuous bundle v4 observed availability cannot precede session ",
+      format(data$date[[bad]]), " for contract '", data$contract[[bad]], "'.",
+      call. = FALSE
+    )
+  }
+  reversed <- available_observed & settlement_observed &
+    data$settlement_available_at > data$available_at
+  reversed[is.na(reversed)] <- FALSE
+  if (any(reversed)) {
+    bad <- which(reversed)[[1L]]
+    stop(
+      "Continuous bundle v4 available_at cannot precede ",
+      "settlement_available_at on ", format(data$date[[bad]]),
+      " for contract '", data$contract[[bad]], "'.",
+      call. = FALSE
+    )
+  }
+  invisible(TRUE)
 }
 
 .brf_bundle_maturity_filter <- function(maturities) {
@@ -1776,6 +1917,14 @@ build_continuous_bundle <- function(data,
     active_contract = selected$contract,
     nominal_active_contract = selected$nominal_active_contract,
     signal_contract = signal_selected$contract,
+    available_at = selected$available_at,
+    settlement_available_at = selected$settlement_available_at,
+    available_at_observed = !is.na(selected$available_at),
+    settlement_available_at_observed =
+      !is.na(selected$settlement_available_at),
+    same_close_clock_supported =
+      !is.na(selected$available_at) &
+      !is.na(selected$settlement_available_at),
     maturity = selected$maturity,
     last_trade_date = selected$last_trade_date,
     days_to_last_trade = as.integer(selected$last_trade_date - selected$date),
@@ -1843,6 +1992,8 @@ build_continuous_bundle <- function(data,
     low = canonical$low,
     close = canonical$close,
     settlement_price = canonical$settlement_price,
+    available_at = canonical$available_at,
+    settlement_available_at = canonical$settlement_available_at,
     volume = canonical$volume,
     volume_qty = canonical$volume_qty,
     open_interest = canonical$open_interest,

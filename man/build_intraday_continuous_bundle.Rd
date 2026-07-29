@@ -15,7 +15,7 @@ build_intraday_continuous_bundle(
 )
 }
 \arguments{
-\item{daily_bundle}{A schema-v3 \code{brf_continuous_bundle} built from
+\item{daily_bundle}{A schema-v4 \code{brf_continuous_bundle} built from
 official B3 daily data.}
 
 \item{bars}{A non-empty data frame of raw intraday dated-contract bars.

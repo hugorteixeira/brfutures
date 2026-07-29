@@ -1,3 +1,13 @@
+.continuous_bundle_with_observed_clocks <- function(data) {
+  observed <- as.POSIXct(
+    paste(as.character(data$date), "22:30:00"),
+    tz = "UTC"
+  )
+  data$available_at <- observed
+  data$settlement_available_at <- observed
+  data
+}
+
 .continuous_bundle_fixture <- function() {
   dates <- as.Date(c("2024-01-10", "2024-01-11", "2024-01-12"))
   old <- data.frame(
@@ -40,7 +50,7 @@
     auxiliary_fx = 1,
     stringsAsFactors = FALSE
   )
-  rbind(old, new)
+  .continuous_bundle_with_observed_clocks(rbind(old, new))
 }
 
 .continuous_bundle_causal_bridge_fixture <- function(first_new_ohlc_valid = FALSE,
@@ -80,7 +90,7 @@
     volume = c(if (isTRUE(first_new_ohlc_valid)) 10 else 0, 10, 20),
     stringsAsFactors = FALSE
   )
-  rbind(old, new)
+  .continuous_bundle_with_observed_clocks(rbind(old, new))
 }
 
 .continuous_bundle_no_bridge_before_expiry_fixture <- function() {
@@ -97,13 +107,13 @@
     raw$ticker == "TSTG24" &
       raw$date %in% as.Date(c("2024-01-11", "2024-01-12"))
   ] <- NA_real_
-  raw
+  .continuous_bundle_with_observed_clocks(raw)
 }
 
 .continuous_bundle_coalesced_target_fixture <- function() {
   dates <- as.Date("2024-01-01") + 0:5
   make_contract <- function(contract, last_trade_date, settlement, tradable) {
-    data.frame(
+    .continuous_bundle_with_observed_clocks(data.frame(
       date = dates,
       root = "TST",
       ticker = contract,
@@ -116,7 +126,7 @@
       settlement_price = settlement,
       volume = ifelse(tradable, 10, 0),
       stringsAsFactors = FALSE
-    )
+    ))
   }
   rbind(
     make_contract("TSTH24", "2024-01-03", 100:105, TRUE),
@@ -128,7 +138,7 @@
 .continuous_bundle_successor_fallback_fixture <- function() {
   dates <- as.Date("2024-01-01") + 0:8
   make_contract <- function(contract, last_trade_date, settlement, tradable) {
-    data.frame(
+    .continuous_bundle_with_observed_clocks(data.frame(
       date = dates,
       root = "TST",
       ticker = contract,
@@ -141,7 +151,7 @@
       settlement_price = settlement,
       volume = ifelse(tradable, 10, 0),
       stringsAsFactors = FALSE
-    )
+    ))
   }
   rbind(
     make_contract("TSTH24", "2024-01-03", 100:108, TRUE),
@@ -150,7 +160,7 @@
   )
 }
 
-test_that("continuous bundle v3 maps real contracts and official settlement roll", {
+test_that("continuous bundle v4 maps real contracts and observed settlement clocks", {
   bundle <- build_continuous_bundle(
     .continuous_bundle_fixture(),
     root = "TST",
@@ -163,7 +173,23 @@ test_that("continuous bundle v3 maps real contracts and official settlement roll
     bundle,
     c("signal_series", "contract_map", "roll_schedule", "execution_data", "manifest")
   )
-  expect_equal(bundle$manifest$schema_version, 3L)
+  expect_equal(bundle$manifest$schema_version, 4L)
+  expect_false(bundle$manifest$available_at_required)
+  expect_false(bundle$manifest$settlement_available_at_required)
+  expect_true(bundle$manifest$observed_clock_complete)
+  expect_true(bundle$manifest$heterogeneous_same_close_supported)
+  expect_true(bundle$manifest$daily_session_phase_execution_supported)
+  expect_s3_class(bundle$contract_map$available_at, "POSIXct")
+  expect_s3_class(bundle$contract_map$settlement_available_at, "POSIXct")
+  expect_equal(
+    bundle$contract_map$available_at,
+    bundle$contract_map$settlement_available_at
+  )
+  expect_s3_class(bundle$execution_data$available_at, "POSIXct")
+  expect_s3_class(
+    bundle$execution_data$settlement_available_at,
+    "POSIXct"
+  )
   expect_equal(bundle$manifest$adjustment_method, "multiplicative_ratio")
   expect_equal(bundle$manifest$adjustment_anchor, "official_settlement")
   expect_equal(bundle$manifest$roll_rule, "calendar_days_to_last_trade")
@@ -279,11 +305,11 @@ test_that("multiple official-settlement rolls compose factors by segment", {
       stringsAsFactors = FALSE
     )
   }
-  raw <- rbind(
+  raw <- .continuous_bundle_with_observed_clocks(rbind(
     make_contract("TSTF24", "2024-01-04", 100:104, 1:4),
     make_contract("TSTG24", "2024-01-06", 110:114, 1:5),
     make_contract("TSTH24", "2024-02-15", 120:124, 1:5)
-  )
+  ))
   backward <- build_continuous_bundle(
     raw, "TST", 1, "backward", roll_grace_sessions = 0L
   )
@@ -375,7 +401,7 @@ test_that("roll grace carries the old contract to the first causal executable br
 
   expect_warning(
     bundle <- build_continuous_bundle(
-      rbind(old, new),
+      .continuous_bundle_with_observed_clocks(rbind(old, new)),
       root = "BGI",
       days_before_roll = 90,
       roll_grace_sessions = 3L,
@@ -584,7 +610,7 @@ test_that("settlement-only carried sessions are marked but never declared tradab
 
   expect_warning(
     bundle <- build_continuous_bundle(
-      rbind(old, new),
+      .continuous_bundle_with_observed_clocks(rbind(old, new)),
       root = "BGI",
       days_before_roll = 90,
       roll_grace_sessions = 3L,
@@ -775,6 +801,108 @@ test_that("exact mapping does not roll early when the expected row is absent", {
   expect_equal(
     non_strict$manifest$unmapped_reasons,
     "missing_active_contract_row:TSTF24"
+  )
+})
+
+test_that("continuous bundle v4 preserves economic execution without invented clocks", {
+  absent <- .continuous_bundle_fixture()
+  absent$available_at <- NULL
+  absent$settlement_available_at <- NULL
+  without_clock <- build_continuous_bundle(
+    absent,
+    "TST",
+    1,
+    roll_grace_sessions = 0L
+  )
+  expect_true(without_clock$manifest$execution_supported)
+  expect_true(
+    without_clock$manifest$daily_session_phase_execution_supported
+  )
+  expect_false(without_clock$manifest$observed_clock_complete)
+  expect_false(
+    without_clock$manifest$heterogeneous_same_close_supported
+  )
+  expect_s3_class(without_clock$contract_map$available_at, "POSIXct")
+  expect_s3_class(
+    without_clock$contract_map$settlement_available_at,
+    "POSIXct"
+  )
+  expect_true(all(is.na(without_clock$contract_map$available_at)))
+  expect_true(all(is.na(
+    without_clock$contract_map$settlement_available_at
+  )))
+  expect_true(all(is.na(without_clock$execution_data$available_at)))
+  expect_true(all(is.na(
+    without_clock$execution_data$settlement_available_at
+  )))
+
+  date_only <- .continuous_bundle_fixture()
+  date_only$available_at <- date_only$date
+  date_only$settlement_available_at <- date_only$date
+  expect_error(
+    build_continuous_bundle(date_only, "TST", 1),
+    "observed POSIXct timestamp, not a Date/storage key"
+  )
+})
+
+test_that("continuous bundle v4 validates UTC, completeness, and causality", {
+  non_utc <- .continuous_bundle_fixture()
+  non_utc$available_at <- as.POSIXct(
+    format(non_utc$available_at, tz = "America/Sao_Paulo"),
+    tz = "America/Sao_Paulo"
+  )
+  expect_error(
+    build_continuous_bundle(non_utc, "TST", 1),
+    "explicitly tagged UTC"
+  )
+
+  partial <- .continuous_bundle_fixture()
+  partial$settlement_available_at[[1L]] <- as.POSIXct(
+    NA_real_,
+    origin = "1970-01-01",
+    tz = "UTC"
+  )
+  partial_bundle <- build_continuous_bundle(
+    partial,
+    "TST",
+    1,
+    roll_grace_sessions = 0L
+  )
+  expect_true(partial_bundle$manifest$execution_supported)
+  expect_false(partial_bundle$manifest$observed_clock_complete)
+  expect_false(
+    partial_bundle$manifest$heterogeneous_same_close_supported
+  )
+
+  orphan <- .continuous_bundle_fixture()
+  orphan$available_at[[1L]] <- as.POSIXct(
+    NA_real_,
+    origin = "1970-01-01",
+    tz = "UTC"
+  )
+  expect_error(
+    build_continuous_bundle(orphan, "TST", 1),
+    "cannot carry settlement_available_at without"
+  )
+
+  before_session <- .continuous_bundle_fixture()
+  before_session$available_at[[1L]] <- as.POSIXct(
+    "2024-01-09 23:59:59",
+    tz = "UTC"
+  )
+  before_session$settlement_available_at[[1L]] <-
+    before_session$available_at[[1L]]
+  expect_error(
+    build_continuous_bundle(before_session, "TST", 1),
+    "cannot precede session"
+  )
+
+  reversed <- .continuous_bundle_fixture()
+  reversed$settlement_available_at[[1L]] <-
+    reversed$available_at[[1L]] + 1
+  expect_error(
+    build_continuous_bundle(reversed, "TST", 1),
+    "available_at cannot precede settlement_available_at"
   )
 })
 

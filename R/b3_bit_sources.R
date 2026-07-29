@@ -1,9 +1,39 @@
 .brf_b3_bit_source_schema_id <- function() {
-  "brfutures_b3_bit_sources_v1"
+  "brfutures_b3_bit_sources_v2"
 }
 
 .brf_b3_bit_source_schema_version <- function() {
-  1L
+  2L
+}
+
+.brf_b3_bit_source_schema_validate <- function(x, label) {
+  required <- c("source_schema_id", "source_schema_version")
+  missing <- setdiff(required, names(x))
+  valid <- !length(missing)
+  if (valid) {
+    schema_id <- trimws(as.character(x$source_schema_id))
+    schema_version <- suppressWarnings(as.numeric(x$source_schema_version))
+    valid <- length(schema_id) == nrow(x) &&
+      length(schema_version) == nrow(x) &&
+      !anyNA(schema_id) &&
+      !anyNA(schema_version) &&
+      all(nzchar(schema_id)) &&
+      all(schema_id == .brf_b3_bit_source_schema_id()) &&
+      all(is.finite(schema_version)) &&
+      all(schema_version == .brf_b3_bit_source_schema_version())
+  }
+  if (!valid) {
+    stop(
+      label,
+      " must use ",
+      .brf_b3_bit_source_schema_id(),
+      " schema version ",
+      .brf_b3_bit_source_schema_version(),
+      "; rebuild version-1 rows from retained official sources.",
+      call. = FALSE
+    )
+  }
+  invisible(TRUE)
 }
 
 .brf_b3_source_file_sha256 <- function(path) {
@@ -1288,6 +1318,7 @@ brf_b3_bit_terminal_assemble <- function(settlements,
     if (!inherits(object, "data.frame") || !nrow(object)) {
       stop(object_name, " must be a non-empty data frame.", call. = FALSE)
     }
+    .brf_b3_bit_source_schema_validate(object, object_name)
   }
   lifecycle_contract <- .brf_b3_required_column(
     lifecycle,
@@ -1375,7 +1406,10 @@ brf_b3_bit_terminal_assemble <- function(settlements,
     c("previous_settlement_status"),
     "previous settlement status"
   )
-  for (field in c("available_at", "source_file", "source_sha256")) {
+  for (field in c(
+    "available_at", "settlement_available_at",
+    "source_file", "source_sha256"
+  )) {
     .brf_b3_required_column(
       settlements,
       field,
@@ -1388,6 +1422,18 @@ brf_b3_bit_terminal_assemble <- function(settlements,
   )))
   settle$session_date <- as.Date(settle[[settlement_date]])
   settle$available_at <- .brf_b3_parse_timestamp(settle$available_at)
+  settle$settlement_available_at <- .brf_b3_parse_timestamp(
+    settle$settlement_available_at
+  )
+  if (anyNA(settle$available_at) ||
+      anyNA(settle$settlement_available_at) ||
+      any(settle$settlement_available_at > settle$available_at)) {
+    stop(
+      "BIT settlement evidence requires causal available_at and ",
+      "settlement_available_at timestamps from the same official report.",
+      call. = FALSE
+    )
+  }
   settle$official_settlement_brl <- as.numeric(settle[[settlement_price]])
   settle$previous_official_settlement_brl <-
     as.numeric(settle[[previous_price]])
@@ -1677,7 +1723,8 @@ brf_b3_bit_terminal_assemble <- function(settlements,
       lifecycle_available_at = life$available_at[[i]],
       lifecycle_source_file = life$source_file[[i]],
       lifecycle_source_sha256 = life$source_sha256[[i]],
-      settlement_available_at = settlement_row$available_at[[1L]],
+      settlement_available_at =
+        settlement_row$settlement_available_at[[1L]],
       settlement_source_file = settlement_row$source_file[[1L]],
       settlement_source_sha256 = settlement_row$source_sha256[[1L]],
       indicator_available_at = indicator_available_at,

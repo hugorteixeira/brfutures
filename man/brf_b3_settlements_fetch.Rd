@@ -24,7 +24,8 @@ brf_b3_settlements_fetch(
 \item{quiet}{Suppress download progress messages.}
 }
 \value{
-Canonical B3 settlement rows for the requested root and date.
+Canonical B3 settlement rows for the requested root and date,
+  including UTC `available_at` and `settlement_available_at` evidence.
 }
 \description{
 Downloads the daily `SPRDyymmdd.zip` archive and parses its BVBG.187 price
@@ -36,4 +37,10 @@ path without changing how `update_brfut()` selects its normal source.
 The selected BVBG.187 XML is retained in a SHA-256-addressed cache. Official
 `AdjstdQtStin` and `PrvsAdjstdQtStin`, application-header availability,
 message/instrument identifiers and source fingerprints are preserved.
+`available_at` is the `AppHdr/CreDt` of the complete `PricRpt` group.
+`settlement_available_at` is the same observed timestamp when that group
+contains `AdjstdQt`; it is never synthesized from the report date. This
+settlement-specific clock is mandatory in
+`brfutures_b3_bit_sources_v2`; persisted version-1 rows are incompatible
+with exact execution and must be rebuilt from the retained official XML.
 }

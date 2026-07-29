@@ -135,6 +135,7 @@
     ticker = character(),
     source = character(),
     available_at = as.POSIXct(character(), tz = "UTC"),
+    settlement_available_at = as.POSIXct(character(), tz = "UTC"),
     source_report_type = character(),
     source_group_id = character(),
     source_group_created_at = character(),
@@ -180,6 +181,12 @@
       base_col <- template[[col]]
       if (inherits(base_col, "Date")) {
         df[[col]] <- as.Date(rep(NA, nrow(df)))
+      } else if (inherits(base_col, "POSIXct")) {
+        df[[col]] <- as.POSIXct(
+          rep(NA_real_, nrow(df)),
+          origin = "1970-01-01",
+          tz = "UTC"
+        )
       } else if (is.numeric(base_col)) {
         df[[col]] <- rep(NA_real_, nrow(df))
       } else {

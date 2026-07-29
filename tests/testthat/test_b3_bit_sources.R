@@ -364,8 +364,8 @@ test_that("BVBG.028 lifecycle selects the latest official snapshot", {
   )
   expect_equal(latest$instrument_id, "400000110035")
   expect_equal(latest$source_group_id, "LATE")
-  expect_equal(latest$source_schema_id, "brfutures_b3_bit_sources_v1")
-  expect_equal(latest$source_schema_version, 1L)
+  expect_equal(latest$source_schema_id, "brfutures_b3_bit_sources_v2")
+  expect_equal(latest$source_schema_version, 2L)
   expect_equal(latest$source_parser, "bounded_bizgrp_stream_v1")
   expect_match(latest$source_sha256, "^[0-9a-f]{64}$")
 })
@@ -508,9 +508,9 @@ test_that("Indic.txt parser preserves scale, aliases and causal provenance", {
   expect_true(all(parsed$available_at == available_at))
   expect_true(all(parsed$source_file == "ID251223.ex_"))
   expect_true(all(
-    parsed$source_schema_id == "brfutures_b3_bit_sources_v1"
+    parsed$source_schema_id == "brfutures_b3_bit_sources_v2"
   ))
-  expect_true(all(parsed$source_schema_version == 1L))
+  expect_true(all(parsed$source_schema_version == 2L))
   expect_true(all(grepl("^[0-9a-f]{64}$", parsed$source_sha256)))
 
   expect_error(
@@ -550,8 +550,14 @@ test_that("BIT terminal source assembly reconciles all three official prices", {
   )
   settlements <- data.frame(
     contract_code = "BITZ25",
+    source_schema_id = "brfutures_b3_bit_sources_v2",
+    source_schema_version = 2L,
     date = as.Date("2025-12-23"),
     available_at = as.POSIXct(
+      "2025-12-23 22:39:49",
+      tz = "UTC"
+    ),
+    settlement_available_at = as.POSIXct(
       "2025-12-23 22:39:49",
       tz = "UTC"
     ),
@@ -572,9 +578,9 @@ test_that("BIT terminal source assembly reconciles all three official prices", {
   expect_equal(terminal$contract, "BITZ25")
   expect_equal(
     terminal$source_schema_id,
-    "brfutures_b3_bit_sources_v1"
+    "brfutures_b3_bit_sources_v2"
   )
-  expect_equal(terminal$source_schema_version, 1L)
+  expect_equal(terminal$source_schema_version, 2L)
   expect_equal(terminal$session_date, as.Date("2025-12-23"))
   expect_equal(terminal$nqbtcs_usd, 87817.13)
   expect_equal(terminal$rtdol_d1, 5.5379)
@@ -595,6 +601,18 @@ test_that("BIT terminal source assembly reconciles all three official prices", {
   expect_false(terminal$execution_supported)
   expect_equal(terminal$usage, "source_validation_only")
   expect_match(terminal$terminal_fingerprint, "^[0-9a-f]{64}$")
+
+  legacy_settlements <- settlements
+  legacy_settlements$source_schema_id <- "brfutures_b3_bit_sources_v1"
+  legacy_settlements$source_schema_version <- 1L
+  expect_error(
+    brf_b3_bit_terminal_assemble(
+      legacy_settlements,
+      indicators,
+      lifecycle
+    ),
+    "rebuild version-1 rows from retained official sources"
+  )
 
   calendar <- bit_calendar_evidence(
     dates = seq(as.Date("2025-12-23"), as.Date("2025-12-26"), by = "day"),
@@ -685,6 +703,18 @@ test_that("BIT terminal source assembly reconciles all three official prices", {
     "statuses must both be final"
   )
 
+  reversed_clock <- settlements
+  reversed_clock$settlement_available_at <-
+    reversed_clock$available_at + 1
+  expect_error(
+    brf_b3_bit_terminal_assemble(
+      reversed_clock,
+      indicators,
+      lifecycle
+    ),
+    "settlement_available_at timestamps from the same official report"
+  )
+
   bad_direct <- indicators
   bad_direct$value[bad_direct$canonical_indicator == "RTBITLIQ"] <- 486322.47
   expect_error(
@@ -770,12 +800,16 @@ test_that("historical settlement fetch bypasses the global XML cutover", {
     settlement$available_at,
     as.POSIXct("2024-04-26 22:40:23", tz = "UTC")
   )
+  expect_equal(
+    settlement$settlement_available_at,
+    as.POSIXct("2024-04-26 22:40:23", tz = "UTC")
+  )
   expect_equal(settlement$source_report_type, "BVBG.187.01")
   expect_equal(
     settlement$source_schema_id,
-    "brfutures_b3_bit_sources_v1"
+    "brfutures_b3_bit_sources_v2"
   )
-  expect_equal(settlement$source_schema_version, 1L)
+  expect_equal(settlement$source_schema_version, 2L)
   expect_match(settlement$source_sha256, "^[0-9a-f]{64}$")
   expect_equal(
     getOption("brfutures.xml_cutover_date"),
@@ -815,6 +849,10 @@ test_that("BVBG.187 provenance stays aligned after many preceding groups", {
   expect_equal(parsed$source_message_id, "BIT-FINAL-187")
   expect_equal(
     parsed$available_at,
+    as.POSIXct("2024-04-26 22:40:23", tz = "UTC")
+  )
+  expect_equal(
+    parsed$settlement_available_at,
     as.POSIXct("2024-04-26 22:40:23", tz = "UTC")
   )
   expect_equal(parsed$settlement_status, "F")
@@ -1007,6 +1045,8 @@ test_that("first BIT expiry fixture reconciles the original 0.1 BTC regime", {
   lifecycle <- data.frame(
     contract = "BITJ24",
     root = "BIT",
+    source_schema_id = "brfutures_b3_bit_sources_v2",
+    source_schema_version = 2L,
     report_date = as.Date("2024-04-26"),
     available_at = as.POSIXct("2024-04-26 21:37:18", tz = "UTC"),
     last_trade_date = as.Date("2024-04-26"),
@@ -1018,8 +1058,12 @@ test_that("first BIT expiry fixture reconciles the original 0.1 BTC regime", {
   )
   settlements <- data.frame(
     contract_code = "BITJ24",
+    source_schema_id = "brfutures_b3_bit_sources_v2",
+    source_schema_version = 2L,
     date = as.Date("2024-04-26"),
     available_at = as.POSIXct("2024-04-26 22:40:23", tz = "UTC"),
+    settlement_available_at =
+      as.POSIXct("2024-04-26 22:40:23", tz = "UTC"),
     settlement_price = 327350.71,
     settlement_status = "F",
     previous_settlement = 335123.61,
@@ -1031,6 +1075,8 @@ test_that("first BIT expiry fixture reconciles the original 0.1 BTC regime", {
   indicators <- data.frame(
     indicator = c("BTCLIQUSD", "RTDOL-D1", "RTBITLIQ"),
     canonical_indicator = c("NQBTCS", "RTDOL-D1", "RTBITLIQ"),
+    source_schema_id = rep("brfutures_b3_bit_sources_v2", 3L),
+    source_schema_version = rep(2L, 3L),
     reference_date = rep(as.Date("2024-04-26"), 3L),
     value = c(64004.44, 5.1145, 327350.71),
     available_at = rep(

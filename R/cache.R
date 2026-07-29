@@ -250,6 +250,19 @@
     return(TRUE)
   }
 
+  # Parser v10 materializes the settlement-specific availability timestamp
+  # from the AppHdr/CreDt of the same BVBG.187 BizGrp that carries AdjstdQt.
+  # Legacy HTML has no such observed clock and remains semantically unchanged;
+  # XML v9 caches must be reparsed from their retained source document.
+  if (identical(version, 9L)) {
+    source <- if ("source" %in% names(df)) {
+      tolower(trimws(as.character(df$source)))
+    } else {
+      character()
+    }
+    return(!length(source) || !any(source == "xml", na.rm = TRUE))
+  }
+
   # Parser v9 adds official BVBG message timestamps, status fields and source
   # provenance. Legacy HTML rows cannot contain that XML evidence, so their v8
   # parsed caches remain semantically current. BVBG v8 caches deliberately
@@ -408,11 +421,27 @@
     return(.brf_empty_bulletin())
   }
   cols <- unique(unlist(lapply(data_list, names), use.names = FALSE))
+  template <- .brf_empty_bulletin()
   filled <- lapply(data_list, function(df) {
     missing <- setdiff(cols, names(df))
     if (length(missing)) {
       for (col in missing) {
-        df[[col]] <- rep(NA, nrow(df))
+        if (col %in% names(template) &&
+            inherits(template[[col]], "POSIXct")) {
+          df[[col]] <- as.POSIXct(
+            rep(NA_real_, nrow(df)),
+            origin = "1970-01-01",
+            tz = "UTC"
+          )
+        } else if (col %in% names(template) &&
+                   inherits(template[[col]], "Date")) {
+          df[[col]] <- as.Date(
+            rep(NA_real_, nrow(df)),
+            origin = "1970-01-01"
+          )
+        } else {
+          df[[col]] <- rep(NA, nrow(df))
+        }
       }
     }
     df[cols]

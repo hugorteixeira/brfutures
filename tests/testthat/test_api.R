@@ -240,6 +240,10 @@ test_that("BVBG XML parser maps fields and filters futures", {
     parsed$available_at,
     as.POSIXct("2026-01-08 22:30:00", tz = "UTC")
   )
+  expect_equal(
+    parsed$settlement_available_at,
+    as.POSIXct("2026-01-08 22:30:00", tz = "UTC")
+  )
   expect_equal(parsed$source_report_type, "BVBG.187.01")
   expect_equal(parsed$source_group_id, "GROUP-217")
   expect_equal(parsed$source_message_id, "MSG-217")
@@ -686,6 +690,40 @@ test_that("DI settlement scale typos are repaired from same-row PU fields", {
   expect_false(brfutures:::`.brf_parsed_is_current`(rows))
   attr(repaired, "brf_parser_version") <- 7L
   expect_true(brfutures:::`.brf_parsed_is_current`(repaired))
+})
+
+test_that("parser v10 reparses XML v9 clocks but preserves legacy HTML", {
+  xml <- data.frame(source = "xml", stringsAsFactors = FALSE)
+  attr(xml, "brf_parser_version") <- 9L
+  expect_false(brfutures:::`.brf_parsed_is_current`(xml))
+
+  html <- data.frame(source = "html", stringsAsFactors = FALSE)
+  attr(html, "brf_parser_version") <- 9L
+  expect_true(brfutures:::`.brf_parsed_is_current`(html))
+})
+
+test_that("mixed legacy and XML rows preserve observed UTC clock classes", {
+  legacy <- data.frame(
+    date = as.Date("2021-11-12"),
+    contract_code = "CCMZ21",
+    stringsAsFactors = FALSE
+  )
+  observed_at <- as.POSIXct("2021-11-16 22:30:00", tz = "UTC")
+  observed <- data.frame(
+    date = as.Date("2021-11-16"),
+    contract_code = "CCMH22",
+    available_at = observed_at,
+    settlement_available_at = observed_at,
+    stringsAsFactors = FALSE
+  )
+  mixed <- brfutures:::`.brf_bind_rows`(list(legacy, observed))
+  expect_s3_class(mixed$available_at, "POSIXct")
+  expect_s3_class(mixed$settlement_available_at, "POSIXct")
+  expect_true(is.na(mixed$available_at[[1L]]))
+  expect_true(is.na(mixed$settlement_available_at[[1L]]))
+  expect_equal(mixed$available_at[[2L]], observed_at)
+  expect_equal(mixed$settlement_available_at[[2L]], observed_at)
+  expect_equal(attr(mixed$settlement_available_at, "tzone"), "UTC")
 })
 
 test_that("DI PU ingestion and continuous preparation reject zero quote rows", {

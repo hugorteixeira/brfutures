@@ -20,9 +20,14 @@ build_continuous_bundle(
 \arguments{
 \item{data}{Non-empty data frame containing daily quotes by real contract.
 Required fields are `date`, `root`, `ticker`, `maturity`,
-`last_trade_date`, `open`, `high`, `low`, `close`, and
-`settlement_price`. Common contract/price aliases are accepted, but the
-official last-trade field must be named `last_trade_date`.}
+`last_trade_date`, `open`, `high`, `low`, `close`,
+`settlement_price`. Optional `available_at` and
+`settlement_available_at` clocks must be `POSIXct` vectors explicitly
+tagged UTC when supplied; observed values may not precede their session
+date, and settlement availability may not follow complete-row
+availability. Missing clocks stay typed `NA` and never default to the
+report date. Common contract/price aliases are accepted, but the official
+last-trade field must be named `last_trade_date`.}
 
 \item{root}{Character scalar identifying the B3 futures root.}
 
@@ -44,10 +49,10 @@ expiry still fails. The default is three sessions.}
 \item{adjustment_direction}{Either `"backward"` (preserve the latest raw
 level) or `"forward"` (preserve the earliest raw level).}
 
-\item{adjustment_anchor}{Adjustment anchor. Schema version 3 supports only
+\item{adjustment_anchor}{Adjustment anchor. Schema version 4 supports only
 `"official_settlement"`.}
 
-\item{roll_date_col}{Roll-date column. Schema version 3 requires
+\item{roll_date_col}{Roll-date column. Schema version 4 requires
 `"last_trade_date"`; the argument is explicit to make the convention
 serializable in the bundle manifest.}
 
@@ -100,9 +105,18 @@ nearest later-expiry contract that has a causal same-day executable bridge
 when the nominal target does not. That is an execution-successor fallback,
 recorded in the roll schedule, not volume/OI signal mapping.
 
-Schema v3 serializes
-\code{roll_timing_policy = "causal_prebuffer_first_executable"},
-\code{roll_grace_policy = "symmetric_prebuffer_then_causal_extension"}, and
-\code{signal_coordinate_policy =
-"last_observed_signal_contract_causal_carry"}.
+Schema v4 additionally carries two source-observed UTC clocks when they
+exist: `available_at`, for the complete official price report, and
+`settlement_available_at`, for the official settlement carried by that
+report. For BVBG.187 both are the AppHdr/CreDt of the same BizGrp containing
+`AdjstdQt`; equality is therefore expected and is not an invented session
+timestamp. Legacy HTML input retains typed missing clocks. It remains
+economically executable under the deterministic daily session-phase model,
+but is ineligible for heterogeneous same-close ordering.
+
+Schema v4 serializes
+`roll_timing_policy = "causal_prebuffer_first_executable"`,
+`roll_grace_policy = "symmetric_prebuffer_then_causal_extension"`, and
+`signal_coordinate_policy =
+"last_observed_signal_contract_causal_carry"`.
 }

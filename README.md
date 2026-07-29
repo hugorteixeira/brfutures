@@ -53,7 +53,10 @@ constructs a DOM for the hundreds-of-megabytes BVBG.028 file.
 without changing that global source rule. `brf_b3_indicators_fetch()` owns the
 `IDyymmdd.ex_`/`Indic.txt` collection and retains immutable, content-addressed
 availability manifests instead of overwriting earlier evidence. All outputs identify
-`brfutures_b3_bit_sources_v1` and retain content SHA-256 provenance.
+`brfutures_b3_bit_sources_v2` and retain content SHA-256 provenance. Version 2
+requires the settlement-specific causal clock carried from the same
+BVBG.187 message as `AdjstdQt`; version 1 rows must be rebuilt from retained
+official sources before exact execution.
 Because `Indic.txt` has no embedded publication timestamp, a new historical
 fetch requires externally evidenced `available_at` and fails closed without
 it. `brf_b3_bit_terminal_assemble()` then reconciles final BVBG.187 `AdjstdQt`,
@@ -268,6 +271,36 @@ The continuous futures functions support:
 - **Custom roll schedules**: Adjust how many days before maturity to roll
 - **Maturity filtering**: Select specific months (e.g., "F", "G", "H") or use all
 - **Multi-root support**: Include additional roots for historical continuity
+
+### Exact daily B3 continuous clock contract
+
+`build_continuous_bundle()` schema v4 keeps adjusted prices signal-only and
+carries observed causal clocks for real-contract rows when the source proves
+them.
+`available_at` identifies when the complete official row was available and
+`settlement_available_at` identifies when its official settlement was
+available. Supplied clocks must be `POSIXct` vectors explicitly tagged UTC;
+an observed value may not precede the session, and
+`settlement_available_at <= available_at`.
+
+For BVBG.187 XML, both clocks are the official `AppHdr/CreDt` of the same
+`BizGrp` that contains `PricRpt/FinInstrmAttrbts/AdjstdQt`. Their equality is
+therefore observed source evidence, not an assumed market close. The parser
+materializes both fields and the bundle carries them into `contract_map` and
+raw `execution_data`. Legacy HTML has no equivalent publication evidence, so
+both fields remain typed `NA`; the builder never invents midnight or an
+end-of-day timestamp. This does not remove the economically exact daily
+session-phase engine used for the 2011+ history:
+`daily_session_phase_execution_supported` remains independent of wall-clock
+evidence. Instead, `observed_clock_complete` and
+`heterogeneous_same_close_supported` fail closed. A `Date` supplied as if it
+were a timestamp is rejected.
+
+The official historical `SPRDyymmdd.zip` archive fills this clock contract
+from 2021-11-16 onward in the dates audited here, but returns an empty ZIP for
+older probes including 2015-01-05, 2020-01-02, 2021-01-04, 2021-07-01 and
+2021-11-12. Therefore the package does not pretend that a full 2011+ wall
+clock can be reconstructed from that endpoint.
 
 ### DI selection and roll safety contract
 
