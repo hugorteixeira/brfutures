@@ -9,7 +9,8 @@ brf_b3_contract_lifecycle_fetch(
   cache_dir = NULL,
   refresh = FALSE,
   quiet = FALSE,
-  latest = TRUE
+  latest = TRUE,
+  root = "BIT"
 )
 }
 \arguments{
@@ -26,9 +27,12 @@ exist.}
 \item{latest}{Whether to return only the newest official revision per
 contract and report date. Set to `FALSE` to retain corrections in causal
 publication order.}
+
+\item{root}{B3 futures root to retain. Defaults to `"BIT"` for backward
+compatibility. Use `NULL` to retain every futures root in the snapshot.}
 }
 \value{
-A causal BIT lifecycle data frame for the report date.
+A causal futures lifecycle data frame for the report date.
 }
 \description{
 Downloads `INyymmdd.zip` and retains the compressed archive in a

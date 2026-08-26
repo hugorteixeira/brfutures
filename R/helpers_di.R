@@ -302,9 +302,10 @@
 #'
 #' @param ticker Character scalar such as `"DI1F25"`.
 #' @param cal Optional `bizdays` calendar. For ticker-to-maturity resolution,
-#'   the default is the B3 trading-session calendar because DI1 expires on the
-#'   first exchange session of its contract month. PU tenor calculations use
-#'   the separate ANBIMA financial-day default.
+#'   this is used only by the pre-2018 historical estimator. Contracts from
+#'   2018 onward are resolved exclusively from the official B3 `BVBG.028`
+#'   registry. PU tenor calculations use the separate ANBIMA financial-day
+#'   default.
 #' @return A `Date` with the contract maturity.
 #' @export
 di_maturity_from_ticker <- function(ticker, cal = NULL) {
@@ -319,15 +320,7 @@ di_maturity_from_ticker <- function(ticker, cal = NULL) {
       call. = FALSE
     )
   }
-  month_code <- substr(ticker, 4, 4)
-  mm <- .brf_di_month_letter[month_code]
-  if (is.na(mm)) stop("Cannot parse month from ticker: ", ticker, call. = FALSE)
-
-  y2 <- as.integer(substr(ticker, 5, 6))
-  if (is.na(y2)) stop("Cannot parse year from ticker: ", ticker, call. = FALSE)
-  y4 <- ifelse(y2 >= 90, 1900 + y2, 2000 + y2)
-
-  .brf_di_first_session_day(y4, mm, cal = cal)
+  brf_maturity_from_ticker(ticker, cal = cal)[[1L]]
 }
 
 #' DI futures notional (PU) from annualized rates

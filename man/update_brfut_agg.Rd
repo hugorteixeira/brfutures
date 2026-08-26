@@ -9,15 +9,15 @@ update_brfut_agg(root = NULL, all = TRUE, rebuild_roots = NULL, quiet = FALSE)
 \arguments{
 \item{root}{Optional character vector with roots to target. When omitted
 and `rebuild_roots` is `TRUE`, every cached root is rebuilt from the raw
-HTML/XML files.}
+HTML files and retained PR snapshots/parsed rows.}
 
 \item{all}{When `TRUE`, refreshes the aggregate cache after the optional root
 rebuilds. Defaults to `TRUE`.}
 
 \item{rebuild_roots}{Controls whether root caches are rebuilt from the raw
-HTML/XML files. When `NULL` (default) the caches are rebuilt only when specific
-`root` values are supplied. Set to `TRUE` or `FALSE` to override this
-behaviour.}
+HTML files and retained PR snapshots/parsed rows. When `NULL` (default),
+caches are rebuilt only when specific `root` values are supplied. Set to
+`TRUE` or `FALSE` to override this behaviour.}
 
 \item{quiet}{Set to `TRUE` to silence informational messages.}
 }
@@ -26,6 +26,7 @@ Invisibly returns a list with rebuilt root data frames (if any) and
   the refreshed aggregate data frame when requested.
 }
 \description{
-Rebuilds per-root caches by re-parsing cached HTML bulletins and BVBG XML
-data (including yearly BVBG caches) before refreshing the aggregate store.
+Rebuilds per-root caches from cached HTML bulletins and complete PR/BVBG.086
+futures rows (including compact yearly BVBG caches) before refreshing the
+aggregate store.
 }

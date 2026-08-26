@@ -1,18 +1,20 @@
 #' Update cached B3 futures bulletins
 #'
-#' Downloads HTML bulletins (legacy) or BVBG XML reports, parses them, and
-#' stores both the raw files and tidy daily observations in the configured cache
-#' directory.
+#' Downloads legacy HTML bulletins or complete PR/BVBG.086 XML price reports,
+#' parses them, and stores tidy daily observations in the configured cache.
+#' Legacy HTML files remain raw; for PR, only the final compressed XML snapshot,
+#' a futures-only RDS and a hash-verified manifest are retained.
 #'
 #' @details
-#' Dates before the XML cutover (defaults to 2025-12-16) use the legacy HTML
-#' bulletin endpoint. Dates on/after the cutover download BVBG XML reports from
-#' the B3 pesquisapregao SPRD ZIP endpoint. Override the cutover date with
+#' Dates before the XML cutover (defaults to 2025-12-15) use the legacy HTML
+#' bulletin endpoint. Dates on/after the cutover download the complete
+#' `PRyymmdd.zip`/BVBG.086 report. If an archive contains several complete
+#' publications, the one with the newest embedded `AppHdr/CreDt` is selected;
+#' snapshots are never added together. Override the cutover date with
 #' `options(brfutures.xml_cutover_date = "YYYY-MM-DD")` (or
 #' `brfutures.bdi_cutover_date` for backwards compatibility). If the ZIP
 #' endpoint blocks non-browser clients, set a browser-like user-agent via
-#' `options(brfutures.bvbg_user_agent = "...")`. You can also point to a local
-#' XML file or directory with `options(brfutures.bvbg_xml_path = "...")`.
+#' `options(brfutures.bvbg_user_agent = "...")`.
 #'
 #' @param root Optional character vector with commodity roots (e.g. `"WIN"`).
 #'   When omitted the function updates every root already present inside the
@@ -569,18 +571,19 @@ update_brfut <- function(root = NULL,
 
 #' Rebuild cached root and aggregate data
 #'
-#' Rebuilds per-root caches by re-parsing cached HTML bulletins and BVBG XML
-#' data (including yearly BVBG caches) before refreshing the aggregate store.
+#' Rebuilds per-root caches from cached HTML bulletins and complete PR/BVBG.086
+#' futures rows (including compact yearly BVBG caches) before refreshing the
+#' aggregate store.
 #'
 #' @param root Optional character vector with roots to target. When omitted
 #'   and `rebuild_roots` is `TRUE`, every cached root is rebuilt from the raw
-#'   HTML/XML files.
+#'   HTML files and retained PR snapshots/parsed rows.
 #' @param all When `TRUE`, refreshes the aggregate cache after the optional root
 #'   rebuilds. Defaults to `TRUE`.
 #' @param rebuild_roots Controls whether root caches are rebuilt from the raw
-#'   HTML/XML files. When `NULL` (default) the caches are rebuilt only when specific
-#'   `root` values are supplied. Set to `TRUE` or `FALSE` to override this
-#'   behaviour.
+#'   HTML files and retained PR snapshots/parsed rows. When `NULL` (default),
+#'   caches are rebuilt only when specific `root` values are supplied. Set to
+#'   `TRUE` or `FALSE` to override this behaviour.
 #' @param quiet Set to `TRUE` to silence informational messages.
 #'
 #' @return Invisibly returns a list with rebuilt root data frames (if any) and

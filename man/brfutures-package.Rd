@@ -6,7 +6,7 @@
 \alias{brfutures-package}
 \title{brfutures: Brazilian Futures Data Tools}
 \description{
-Lightweight tools to download, parse, cache, and retrieve B3 (BM&F Bovespa) futures daily bulletins from the legacy HTML endpoint and the BVBG XML reports (via the pesquisapregao SPRD ZIP download), switching automatically at a configurable cutover date. Provides update helpers that keep a local cache in sync and fast accessors for cached contract data.
+Lightweight tools to download, parse, cache, and retrieve B3 (BM&F Bovespa) futures daily bulletins from the legacy HTML endpoint and the BVBG XML reports (using the complete PR/BVBG.086 price report), switching automatically at a configurable cutover date. Provides update helpers that keep a hash-verified local cache in sync and fast accessors for cached contract data.
 }
 \author{
 \strong{Maintainer}: Hugo Rzepian Teixeira \email{hugorteixeira@senhormercado.com.br}

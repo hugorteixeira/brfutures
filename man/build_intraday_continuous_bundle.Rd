@@ -15,38 +15,55 @@ build_intraday_continuous_bundle(
 )
 }
 \arguments{
-\item{daily_bundle}{A schema-v4 \code{brf_continuous_bundle} built from
-official B3 daily data.}
+\item{daily_bundle}{A schema-v4 `brf_continuous_bundle` built from official
+B3 daily data.}
 
-\item{bars}{A non-empty data frame of raw intraday dated-contract bars.
-Required columns are \code{timestamp}, \code{root}, \code{contract},
-\code{open}, \code{high}, \code{low}, and \code{close}.}
+\item{bars}{Non-empty data frame of raw intraday dated-contract bars.
+Required columns are `timestamp`, `root`, `contract`, `open`, `high`,
+`low`, and `close`. Optional canonical columns include `session_date`,
+`available_at`, `information_cutoff`, `maturity`, `source_volume`,
+`source_volume_semantics`, `source_series_id`, `source_table`,
+`source_timezone`, and `data_quality`.
+Provider adapters that aggregate a finer raw grid should also supply
+`observed_child_bars`, `expected_child_bars`, and
+`observed_grid_policy`.}
 
-\item{timeframe}{Intraday bar width such as \code{"15m"}, \code{"1h"}, or
-\code{"4h"}.}
+\item{timeframe}{Intraday bar width, for example `"1m"`, `"15m"`, `"1h"`,
+or `"4h"`.}
 
-\item{source}{Provider identifier such as \code{"mt5"} or
-\code{"barchart"}.}
+\item{source}{Provider identifier such as `"mt5"` or `"barchart"`.}
 
-\item{session_tz}{Olson timezone used to derive the session date.}
+\item{session_tz}{Olson timezone used to derive `session_date` from bar-open
+timestamps. B3 data normally uses `"America/Sao_Paulo"`.}
 
-\item{strict}{Whether invalid mapping, prices, official settlement, or
-contract coverage must stop the build.}
+\item{strict}{Logical scalar. In strict mode unknown sessions/contracts,
+invalid OHLC, missing official active-contract settlements, or missing
+mapped contract coverage stop the build. Sessions without an intraday bar
+are valid: they remain in `session_map` and can still be marked by their
+official settlement, but cannot produce a fill.}
 
-\item{grid_policy}{Raw-child completeness policy when child counts are
-available. The default fails closed on partial buckets.
-\code{"allow_observed_sparse"} is an explicit manifest-recorded opt-in and
-does not fabricate missing children.}
+\item{grid_policy}{Raw-child completeness policy when `bars` carries
+`observed_child_bars` and `expected_child_bars`. The default,
+`"require_complete_grid"`, fails closed on partial buckets.
+`"allow_observed_sparse"` is an explicit, manifest-recorded opt-in; it
+preserves observed rows and never fabricates missing children.}
 }
 \value{
-An object of class \code{brf_intraday_continuous_bundle} containing adjusted
-\code{signal_series}, union-clock \code{bar_map}, daily \code{session_map},
-\code{roll_schedule}, raw dated-contract \code{execution_data}, official
-\code{settlement_data}, and a versioned \code{manifest}.
+An object of class `brf_intraday_continuous_bundle` containing
+  adjusted `signal_series`, union-clock `bar_map`, daily `session_map`,
+  official `roll_schedule`, raw dated-contract `execution_data`, daily
+  `settlement_data`, and a versioned `manifest`.
 }
 \description{
-Expands an execution-aware daily B3 bundle onto provider-neutral raw intraday
-bars. Adjusted prices are signal-only. Execution remains in raw dated-contract
-coordinates and official settlements retain an end-of-session phase instead of
-an invented intraday timestamp.
+Expands an execution-aware daily B3 bundle produced by
+[build_continuous_bundle()] onto raw intraday bars from dated contracts. The
+adjusted continuous series is signal-only. Raw dated-contract bars and
+official daily settlements remain separate execution inputs.
+}
+\details{
+`timestamp` is the bar-open timestamp. Unless supplied explicitly,
+`available_at` and `information_cutoff` are set to the bar close implied by
+`timeframe`. The function never invents an intraday timestamp for an
+official settlement: settlements retain a `Date` and an explicit
+end-of-session phase.
 }

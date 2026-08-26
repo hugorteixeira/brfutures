@@ -23,7 +23,9 @@
                                     kind = c(
                                       "instrument",
                                       "indicator",
-                                      "settlement"
+                                      "settlement",
+                                      "price_full",
+                                      "price_simplified"
                                     )) {
   kind <- match.arg(kind)
   date <- .brf_normalize_date(date)
@@ -31,7 +33,9 @@
     kind,
     instrument = "IN",
     indicator = "ID",
-    settlement = "SPRD"
+    settlement = "SPRD",
+    price_full = "PR",
+    price_simplified = "SPRD"
   )
   extension <- if (kind == "indicator") ".ex_" else ".zip"
   paste0(prefix, format(date, "%y%m%d"), extension)
@@ -41,7 +45,9 @@
                                    kind = c(
                                      "instrument",
                                      "indicator",
-                                     "settlement"
+                                     "settlement",
+                                     "price_full",
+                                     "price_simplified"
                                    )) {
   kind <- match.arg(kind)
   paste0(
@@ -188,11 +194,18 @@
 .brf_b3_find_nested_payload <- function(archive,
                                         kind,
                                         temp_dir) {
-  xml_kind <- kind %in% c("instrument", "settlement")
+  xml_kind <- kind %in% c(
+    "instrument",
+    "settlement",
+    "price_full",
+    "price_simplified"
+  )
   expected_report <- if (identical(kind, "instrument")) {
     "^BVBG\\.028(?:\\.|$)"
-  } else if (identical(kind, "settlement")) {
+  } else if (kind %in% c("settlement", "price_simplified")) {
     "^BVBG\\.187(?:\\.|$)"
+  } else if (identical(kind, "price_full")) {
+    "^BVBG\\.086(?:\\.|$)"
   } else {
     NA_character_
   }
@@ -246,7 +259,10 @@
                 archive = current,
                 entry = entry,
                 report_type = identity$report_type,
-                created_at = identity$created_at
+                created_at = identity$created_at,
+                uncompressed_bytes = as.numeric(
+                  listing$Length[match(entry, entries)]
+                )
               )
           }
         }
@@ -283,13 +299,17 @@
     indicator_candidates
   }
   if (!length(candidates)) {
+    expected_label <- switch(
+      kind,
+      instrument = "BVBG.028 XML",
+      settlement = "BVBG.187 XML",
+      price_simplified = "BVBG.187 XML",
+      price_full = "BVBG.086 XML",
+      "Indic.txt"
+    )
     stop(
       "No ",
-      if (xml_kind) {
-        if (identical(kind, "instrument")) "BVBG.028 XML" else "BVBG.187 XML"
-      } else {
-        "Indic.txt"
-      },
+      expected_label,
       " payload found in the B3 archive.",
       call. = FALSE
     )
@@ -307,6 +327,35 @@
     selected <- order(names_order)[length(candidates)]
   }
   chosen <- candidates[[selected]]
+  snapshots <- if (xml_kind) {
+    data.frame(
+      source_file = vapply(candidates, `[[`, character(1L), "entry"),
+      report_type = vapply(
+        candidates,
+        `[[`,
+        character(1L),
+        "report_type"
+      ),
+      created_at = as.POSIXct(
+        vapply(
+          candidates,
+          function(x) as.numeric(x$created_at),
+          numeric(1L)
+        ),
+        origin = "1970-01-01",
+        tz = "UTC"
+      ),
+      uncompressed_bytes = vapply(
+        candidates,
+        function(x) x$uncompressed_bytes %||% NA_real_,
+        numeric(1L)
+      ),
+      selected = seq_along(candidates) == selected,
+      stringsAsFactors = FALSE
+    )
+  } else {
+    NULL
+  }
   extracted <- .brf_b3_extract_archive_entry(
     chosen$archive,
     chosen$entry,
@@ -337,7 +386,8 @@
       chosen$created_at
     } else {
       as.POSIXct(NA, origin = "1970-01-01", tz = "UTC")
-    }
+    },
+    snapshots = snapshots
   )
 }
 
@@ -539,14 +589,20 @@
 #' @param latest Whether to return only the newest official revision per
 #'   contract and report date. Set to `FALSE` to retain corrections in causal
 #'   publication order.
-#' @return A causal BIT lifecycle data frame for the report date.
+#' @param root B3 futures root to retain. Defaults to `"BIT"` for backward
+#'   compatibility. Use `NULL` to retain every futures root in the snapshot.
+#' @return A causal futures lifecycle data frame for the report date.
 #' @export
 brf_b3_contract_lifecycle_fetch <- function(date,
                                             cache_dir = NULL,
                                             refresh = FALSE,
                                             quiet = FALSE,
-                                            latest = TRUE) {
+                                            latest = TRUE,
+                                            root = "BIT") {
   date <- .brf_normalize_date(date)
+  if (!is.null(root)) {
+    root <- .brf_normalize_root(root)
+  }
   cache_dir <- .brf_b3_reference_cache_dir(cache_dir)
   day_dir <- file.path(
     cache_dir,
@@ -608,7 +664,7 @@ brf_b3_contract_lifecycle_fetch <- function(date,
         temp_dir = work_dir,
         latest = latest,
         FUN = function(path, candidate) {
-          out <- .brf_b3_contract_lifecycle_parse_one(path, root = "BIT")
+          out <- .brf_b3_contract_lifecycle_parse_one(path, root = root)
           out$source_archive_file <- rep(basename(archive_path), nrow(out))
           out$source_archive_sha256 <- rep(archive_sha256, nrow(out))
           out$source_archive_entry <- rep(candidate$entry, nrow(out))
@@ -627,7 +683,7 @@ brf_b3_contract_lifecycle_fetch <- function(date,
   }
   brf_b3_contract_lifecycle_read(
     legacy_cached_xml,
-    root = "BIT",
+    root = root,
     latest = latest
   )
 }

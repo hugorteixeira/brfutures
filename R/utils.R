@@ -73,7 +73,7 @@
   if (!is.null(override)) {
     return(.brf_normalize_date(override))
   }
-  as.Date("2025-12-16")
+  as.Date("2025-12-15")
 }
 
 .brf_source_for_date <- function(date) {
@@ -343,85 +343,6 @@
   cleaned <- gsub("_+", "_", cleaned, perl = TRUE)
   cleaned <- gsub("^_|_$", "", cleaned, perl = TRUE)
   tolower(cleaned)
-}
-
-.brf_is_business_day <- function(date) {
-  if (is.null(date)) {
-    return(logical())
-  }
-  date <- as.Date(date)
-  wday <- as.POSIXlt(date)$wday
-  !is.na(wday) & wday >= 1 & wday <= 5
-}
-
-.brf_next_business_day <- function(date, n = 1) {
-  if (is.null(date) || is.na(date)) {
-    return(as.Date(NA))
-  }
-  out <- as.Date(date)
-  for (i in seq_len(n)) {
-    repeat {
-      out <- out + 1
-      if (.brf_is_business_day(out)) break
-    }
-  }
-  out
-}
-
-.brf_previous_business_day <- function(date, n = 1) {
-  if (is.null(date) || is.na(date)) {
-    return(as.Date(NA))
-  }
-  out <- as.Date(date)
-  for (i in seq_len(n)) {
-    repeat {
-      out <- out - 1
-      if (.brf_is_business_day(out)) break
-    }
-  }
-  out
-}
-
-.brf_first_business_day <- function(year, month) {
-  start <- as.Date(sprintf("%04d-%02d-01", year, month))
-  if (.brf_is_business_day(start)) {
-    return(start)
-  }
-  .brf_next_business_day(start, n = 1)
-}
-
-.brf_last_business_day <- function(year, month) {
-  next_month <- if (month == 12) 1 else month + 1
-  next_year <- if (month == 12) year + 1 else year
-  start <- as.Date(sprintf("%04d-%02d-01", next_year, next_month)) - 1
-  if (.brf_is_business_day(start)) {
-    return(start)
-  }
-  .brf_previous_business_day(start, n = 1)
-}
-
-.brf_business_day_before <- function(year, month, day, offset = 1) {
-  reference <- as.Date(sprintf("%04d-%02d-%02d", year, month, day))
-  if (!.brf_is_business_day(reference)) {
-    reference <- .brf_previous_business_day(reference, n = 1)
-  }
-  if (offset <= 0) {
-    return(reference)
-  }
-  .brf_previous_business_day(reference, n = offset)
-}
-
-.brf_nearest_weekday <- function(year, month, day, weekday) {
-  target <- as.Date(sprintf("%04d-%02d-%02d", year, month, day))
-  window <- seq(target - 7, target + 7, by = "day")
-  wday <- as.POSIXlt(window)$wday
-  candidates <- window[wday == weekday]
-  if (!length(candidates)) {
-    return(as.Date(NA))
-  }
-  distances <- abs(as.numeric(candidates - target))
-  selected <- candidates[distances == min(distances)]
-  min(selected)
 }
 
 .brf_infer_contract_year <- function(two_digit, reference_date = NULL) {

@@ -177,7 +177,8 @@
     instrument,
     "./*[local-name()='FinInstrmAttrCmon']/*[local-name()='Asst']"
   ))
-  if (is.na(parsed_root) || !identical(parsed_root, root)) {
+  if (is.na(parsed_root) ||
+      (!is.null(root) && !identical(parsed_root, root))) {
     return(list())
   }
   nodes <- xml2::xml_find_all(
@@ -232,9 +233,21 @@
         "./*[local-name()='CtrctMltplr']"
       )
     )
-    size_metadata <- .brf_b3_bit_contract_size_metadata(
-      contract_multiplier
-    )
+    is_bit <- identical(parsed_root, "BIT")
+    size_metadata <- if (is_bit) {
+      .brf_b3_bit_contract_size_metadata(contract_multiplier)
+    } else {
+      list(
+        contract_size_regime = NA_character_,
+        contract_size_effective_from = as.Date(NA),
+        contract_size_effective_to = as.Date(NA),
+        position_conversion_asof_date = as.Date(NA),
+        position_conversion_effective_date = as.Date(NA),
+        position_conversion_ratio = NA_real_,
+        administrative_position_transform = NA_character_,
+        specification_source = "B3 BVBG.028 CtrctMltplr"
+      )
+    }
     data.frame(
       contract = contract,
       root = parsed_root,
@@ -258,7 +271,7 @@
         "./*[local-name()='TradgEndDt']"
       )),
       contract_multiplier = contract_multiplier,
-      contract_size_btc = contract_multiplier,
+      contract_size_btc = if (is_bit) contract_multiplier else NA_real_,
       contract_size_regime = size_metadata$contract_size_regime,
       contract_size_effective_from =
         size_metadata$contract_size_effective_from,
@@ -310,11 +323,15 @@
   group_close_pattern <- paste0(
     "</", namespace, "BizGrp\\s*>"
   )
-  root_pattern <- paste0(
-    "<", namespace, "Asst(?:\\s[^>]*)?>\\s*",
-    root,
-    "\\s*</", namespace, "Asst\\s*>"
-  )
+  root_pattern <- if (is.null(root)) {
+    NULL
+  } else {
+    paste0(
+      "<", namespace, "Asst(?:\\s[^>]*)?>\\s*",
+      root,
+      "\\s*</", namespace, "Asst\\s*>"
+    )
+  }
   future_pattern <- paste0(
     "<", namespace, "FutrCtrctsInf(?:\\s[^>]*)?>"
   )
@@ -353,8 +370,12 @@
       }
     }
 
-    root_hits <- grep(root_pattern, combined, perl = TRUE)
     future_hits <- grep(future_pattern, combined, perl = TRUE)
+    root_hits <- if (is.null(root_pattern)) {
+      future_hits
+    } else {
+      grep(root_pattern, combined, perl = TRUE)
+    }
     if (length(root_hits) && length(starts) && length(ends) &&
         length(future_hits)) {
       block_keys <- character()
@@ -526,7 +547,9 @@ brf_b3_contract_lifecycle_read <- function(paths,
   if (!length(paths)) {
     stop("At least one BVBG.028 XML path is required.", call. = FALSE)
   }
-  root <- .brf_normalize_root(root)
+  if (!is.null(root)) {
+    root <- .brf_normalize_root(root)
+  }
   frames <- lapply(
     paths,
     .brf_b3_contract_lifecycle_parse_one,

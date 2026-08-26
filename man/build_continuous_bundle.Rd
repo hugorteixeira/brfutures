@@ -35,17 +35,6 @@ last-trade field must be named `last_trade_date`.}
 `last_trade_date`. A contract remains active only while
 `days_to_last_trade > days_before_roll`.}
 
-\item{roll_grace_sessions}{Non-negative symmetric roll-window/SLA width in
-B3 sessions. Eligibility opens this many sessions before the nominal
-calendar roll, and the first causal session with official settlement and
-executable OHLC for both legs is used. If none exists by the nominal date,
-the old contract remains marked and the search continues; a delayed roll
-is warned and exceeding the same post-nominal threshold is flagged. This is
-not a hard late cap. If the nominal target advances while a roll is
-pending, intent coalesces to the latest target and may skip an illiquid
-intermediate maturity. Carrying the outgoing contract past its official
-expiry still fails. The default is three sessions.}
-
 \item{adjustment_direction}{Either `"backward"` (preserve the latest raw
 level) or `"forward"` (preserve the earliest raw level).}
 
@@ -60,7 +49,7 @@ serializable in the bundle manifest.}
 unmappable session, or a missing/non-positive active-contract official
 settlement stops the build. A settlement-only session may still be marked,
 but invalid OHLC makes it non-tradable and excludes that session from
-\code{signal_series}; the map keeps the prior observed signal coordinate. Roll
+`signal_series`; the map keeps the prior observed signal coordinate. Roll
 bridges and signal-ratio anchors remain strict: no close,
 last-observation, forward-fill, or invented factor is substituted.}
 
@@ -70,6 +59,17 @@ codes to retain.}
 \item{synthetic_ticker}{Optional stable ticker for the synthetic signal.
 Defaults to `<ROOT>FUT_B<offset>` for backward adjustment and
 `<ROOT>FUT_F<offset>` for forward adjustment.}
+
+\item{roll_grace_sessions}{Non-negative symmetric roll-window/SLA width in
+B3 sessions. Eligibility opens this many sessions before the nominal
+calendar roll, and the first causal session with official settlement and
+executable OHLC for both legs is used. If none exists by the nominal date,
+the old contract remains marked and the search continues; a delayed roll
+is warned and exceeding the same post-nominal threshold is flagged. This is
+not a hard late cap. If the nominal target advances while a roll is
+pending, intent coalesces to the latest target and may skip an illiquid
+intermediate maturity. Carrying the outgoing contract past its official
+expiry still fails. The default is three sessions.}
 }
 \value{
 An object of class `brf_continuous_bundle`. It is a list containing
@@ -87,11 +87,11 @@ An object of class `brf_continuous_bundle`. It is a list containing
 }
 \description{
 Builds a versioned daily continuous-futures bundle with two clocks. The
-sparse \code{signal_series} advances only on usable observed OHLC plus official
+sparse `signal_series` advances only on usable observed OHLC plus official
 settlement. During an unobserved nominal session, its contract/factor
 coordinate carries causally from the last observed signal bar; unobserved
 intermediate maturities are collapsed rather than inserted synthetically.
-\code{contract_map} retains the full official settlement calendar used to carry
+`contract_map` retains the full official settlement calendar used to carry
 and mark the real contract. Nominal mapping is based exclusively on calendar
 days to the official last trading date. Ratio adjustments are anchored
 exclusively on official settlements.

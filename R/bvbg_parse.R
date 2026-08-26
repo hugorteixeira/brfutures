@@ -396,6 +396,7 @@
 }
 
 .brf_bvbg_load_parsed_day <- function(date) {
+  date <- .brf_normalize_date(date)
   path <- .brf_bvbg_parsed_path(date, create = FALSE)
   if (!file.exists(path)) {
     return(NULL)
@@ -408,12 +409,24 @@
   if (is.null(version) || !identical(version, .brf_parser_version())) {
     return(NULL)
   }
+  if (!nrow(data) || !date %in% as.Date(data$date)) {
+    return(NULL)
+  }
   data
 }
 
 .brf_bvbg_save_parsed_day <- function(date, data) {
   if (!inherits(data, "data.frame")) {
     stop("Parsed BVBG data must be a data frame.", call. = FALSE)
+  }
+  date <- .brf_normalize_date(date)
+  if (!nrow(data) || !date %in% as.Date(data$date)) {
+    stop(
+      "Parsed BVBG data does not contain the requested report date ",
+      date,
+      ".",
+      call. = FALSE
+    )
   }
   path <- .brf_bvbg_parsed_path(date, create = TRUE)
   attr(data, "brf_parser_version") <- .brf_parser_version()
@@ -481,10 +494,7 @@
   if (inherits(data, "data.frame")) {
     return(data)
   }
-  year_dir <- .brf_bvbg_year_dir(year, create = FALSE)
-  if (!dir.exists(year_dir)) {
-    return(.brf_empty_bulletin())
-  }
+  year_dir <- .brf_bvbg_year_dir(year, create = TRUE)
   parsed_files <- list.files(year_dir, pattern = "-parsed\\.rds$", full.names = TRUE, ignore.case = TRUE)
   frames <- list()
   parsed_dates <- as.Date(character())
@@ -501,18 +511,45 @@
     parsed_dates <- unique(c(parsed_dates, .brf_extract_report_date_from_name(path)))
   }
   raw_files <- list.files(year_dir, pattern = "-raw\\.xml$", full.names = TRUE, ignore.case = TRUE)
-  if (length(raw_files)) {
-    for (raw_path in raw_files) {
-      file_date <- .brf_extract_report_date_from_name(raw_path)
-      if (!is.na(file_date) && file_date %in% parsed_dates) {
+  raw_dates <- as.Date(vapply(
+    raw_files,
+    function(path) as.numeric(.brf_extract_report_date_from_name(path)),
+    numeric(1L)
+  ), origin = "1970-01-01")
+  valid_raw <- !is.na(raw_dates) & vapply(
+    seq_along(raw_files),
+    function(index) {
+      .brf_bvbg_xml_has_trade_date(raw_files[[index]], raw_dates[[index]])
+    },
+    logical(1L)
+  )
+  raw_dates <- raw_dates[valid_raw]
+  full_root <- file.path(
+    .brf_b3_reference_cache_dir(),
+    "prices",
+    "full"
+  )
+  full_days <- if (dir.exists(full_root)) {
+    list.dirs(full_root, recursive = FALSE, full.names = FALSE)
+  } else {
+    character()
+  }
+  full_dates <- suppressWarnings(as.Date(full_days))
+  full_dates <- full_dates[
+    !is.na(full_dates) & format(full_dates, "%Y") == as.character(year)
+  ]
+  candidate_dates <- sort(unique(c(raw_dates, full_dates)))
+  candidate_dates <- setdiff(candidate_dates, parsed_dates)
+  if (length(candidate_dates)) {
+    for (date_index in seq_along(candidate_dates)) {
+      file_date <- as.Date(
+        candidate_dates[[date_index]],
+        origin = "1970-01-01"
+      )
+      parsed <- .brf_bvbg_ensure_parsed_day(file_date, quiet = quiet)
+      if (isTRUE(attr(parsed, "brf_no_data")) || !nrow(parsed)) {
         next
       }
-      parsed <- .brf_parse_bvbg_xml(raw_path)
-      parsed <- .brf_bvbg_prepare_shared_data(parsed, file_date = file_date)
-      if (isTRUE(attr(parsed, "brf_no_data"))) {
-        next
-      }
-      .brf_bvbg_save_parsed_day(file_date, parsed)
       frames[[length(frames) + 1L]] <- parsed
     }
   }
@@ -541,17 +578,30 @@
   if (inherits(cached, "data.frame")) {
     return(cached)
   }
-  raw_path <- .brf_bvbg_raw_path(date, create = FALSE)
-  if (!file.exists(raw_path)) {
-    raw_path <- .brf_download_bvbg_xml(date, root = "ALL", quiet = quiet)
-  }
-  if (is.na(raw_path) || !nzchar(raw_path) || !file.exists(raw_path)) {
+  parsed <- tryCatch(
+    brf_b3_prices_fetch(
+      date,
+      report = "full",
+      quiet = quiet
+    ),
+    error = function(error) {
+      if (!quiet) {
+        message(
+          "B3 full price report unavailable for ",
+          date,
+          ": ",
+          conditionMessage(error)
+        )
+      }
+      NULL
+    }
+  )
+  if (!inherits(parsed, "data.frame")) {
     out <- .brf_empty_bulletin()
     attr(out, "brf_no_data") <- TRUE
     attr(out, "brf_download_failed") <- TRUE
     return(out)
   }
-  parsed <- .brf_parse_bvbg_xml(raw_path)
   parsed <- .brf_bvbg_prepare_shared_data(parsed, file_date = date)
   if (isTRUE(attr(parsed, "brf_no_data"))) {
     return(parsed)

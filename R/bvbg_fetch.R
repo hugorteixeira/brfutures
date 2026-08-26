@@ -52,13 +52,40 @@
 
 .brf_bvbg_zip_names <- function(date) {
   date <- .brf_normalize_date(date)
-  stamp_ymd <- format(date, "%y%m%d")
-  stamp_ydm <- format(date, "%y%d%m")
-  unique(paste0("SPRD", c(stamp_ymd, stamp_ydm), ".zip"))
+  paste0("SPRD", format(date, "%y%m%d"), ".zip")
 }
 
 .brf_bvbg_urls <- function(date) {
   paste0("https://www.b3.com.br/pesquisapregao/download?filelist=", .brf_bvbg_zip_names(date))
+}
+
+.brf_bvbg_xml_has_trade_date <- function(path, date) {
+  if (!file.exists(path)) {
+    return(FALSE)
+  }
+  date <- .brf_normalize_date(date)
+  namespace <- "(?:[[:alnum:]_.-]+:)?"
+  pattern <- paste0(
+    "<", namespace, "Dt(?:\\s[^>]*)?>\\s*",
+    format(date, "%Y-%m-%d"),
+    "\\s*</", namespace, "Dt\\s*>"
+  )
+  connection <- file(path, open = "rt", encoding = "UTF-8")
+  on.exit(close(connection), add = TRUE)
+  repeat {
+    lines <- readLines(
+      connection,
+      n = 50000L,
+      warn = FALSE,
+      encoding = "UTF-8"
+    )
+    if (!length(lines)) {
+      return(FALSE)
+    }
+    if (any(grepl(pattern, lines, perl = TRUE))) {
+      return(TRUE)
+    }
+  }
 }
 
 .brf_bvbg_user_agent <- function() {
@@ -97,7 +124,7 @@
 .brf_bvbg_find_xml <- function(date) {
   date <- .brf_normalize_date(date)
   raw_path <- .brf_bvbg_raw_path(date, create = FALSE)
-  if (file.exists(raw_path)) {
+  if (file.exists(raw_path) && .brf_bvbg_xml_has_trade_date(raw_path, date)) {
     return(raw_path)
   }
   date_patterns <- c(format(date, "%Y%m%d"), format(date, "%Y-%m-%d"))
@@ -226,13 +253,17 @@
 .brf_download_bvbg_xml <- function(date, root, quiet = FALSE) {
   date <- .brf_normalize_date(date)
   dest <- .brf_bvbg_raw_path(date, create = TRUE)
-  if (file.exists(dest)) {
+  if (file.exists(dest) && .brf_bvbg_xml_has_trade_date(dest, date)) {
     if (!quiet) {
       message("Already cached: ", dest)
     }
     return(dest)
   }
   source <- .brf_bvbg_find_xml(date)
+  if (!is.na(source) && nzchar(source) && file.exists(source) &&
+      !.brf_bvbg_xml_has_trade_date(source, date)) {
+    source <- NA_character_
+  }
   extract_dir <- NULL
   if (is.na(source) || !nzchar(source) || !file.exists(source)) {
     zip_path <- .brf_bvbg_download_zip(date, quiet = quiet)
@@ -250,7 +281,11 @@
     source <- extracted$xml
     extract_dir <- extracted$dir
   }
-  if (is.na(source) || !nzchar(source) || !file.exists(source)) {
+  if (is.na(source) || !nzchar(source) || !file.exists(source) ||
+      !.brf_bvbg_xml_has_trade_date(source, date)) {
+    if (!is.null(extract_dir) && dir.exists(extract_dir)) {
+      unlink(extract_dir, recursive = TRUE, force = TRUE)
+    }
     return(NA_character_)
   }
   dir.create(dirname(dest), recursive = TRUE, showWarnings = FALSE)

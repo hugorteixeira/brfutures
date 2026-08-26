@@ -31,19 +31,21 @@ later.}
 Invisibly returns the merged aggregate data frame after the update.
 }
 \description{
-Downloads HTML bulletins (legacy) or BVBG XML reports, parses them, and
-stores both the raw files and tidy daily observations in the configured cache
-directory.
+Downloads legacy HTML bulletins or complete PR/BVBG.086 XML price reports,
+parses them, and stores tidy daily observations in the configured cache.
+Legacy HTML files remain raw; for PR, only the final compressed XML snapshot,
+a futures-only RDS and a hash-verified manifest are retained.
 }
 \details{
-Dates before the XML cutover (defaults to 2025-12-16) use the legacy HTML
-bulletin endpoint. Dates on/after the cutover download BVBG XML reports from
-the B3 pesquisapregao SPRD ZIP endpoint. Override the cutover date with
+Dates before the XML cutover (defaults to 2025-12-15) use the legacy HTML
+bulletin endpoint. Dates on/after the cutover download the complete
+`PRyymmdd.zip`/BVBG.086 report. If an archive contains several complete
+publications, the one with the newest embedded `AppHdr/CreDt` is selected;
+snapshots are never added together. Override the cutover date with
 `options(brfutures.xml_cutover_date = "YYYY-MM-DD")` (or
 `brfutures.bdi_cutover_date` for backwards compatibility). If the ZIP
 endpoint blocks non-browser clients, set a browser-like user-agent via
-`options(brfutures.bvbg_user_agent = "...")`. You can also point to a local
-XML file or directory with `options(brfutures.bvbg_xml_path = "...")`.
+`options(brfutures.bvbg_user_agent = "...")`.
 }
 \examples{
 \dontrun{

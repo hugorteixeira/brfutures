@@ -21,11 +21,11 @@
 
 ## 🌟 Overview
 
-**brfutures** is a lightweight R package that provides efficient helpers to keep a local cache of B3 (BM&F) futures bulletins. The package supports the legacy HTML endpoint and the newer BVBG XML reports (downloaded via the pesquisapregao SPRD ZIP endpoint), switching automatically at a configurable cutover date (defaults to 2025-12-16).
+**brfutures** is a lightweight R package that provides efficient helpers to keep a local cache of B3 (BM&F) futures bulletins. The package supports the legacy HTML endpoint and, from 2025-12-15 onward, the complete `PRyymmdd.zip`/BVBG.086 XML price report.
 
 - ⚡ **Fast updates**: Parse bulletins as soon as they're downloaded
-- 🔄 **Dual source support**: HTML before the cutover, BVBG XML after it
-- 🗂️ **Smart caching**: Skip "no data" HTML/XML/ZIP days immediately
+- 🔄 **Dual source support**: HTML before the cutover, complete PR/BVBG.086 after it
+- 🗂️ **Smart caching**: Retain only the final compressed PR snapshot, parsed futures rows and verified hashes
 - 🔄 **Incremental merge**: Add fresh data to cached RDS files incrementally
 - 📐 **DI helpers**: Delegate rate/PU math to `positionsizer`
 - 🚀 **Performance**: Keep large refreshes fast with efficient data handling
@@ -66,6 +66,17 @@ These helpers only prove the terminal source inputs. Their assembled rows are
 deliberately marked `execution_supported = FALSE`; no execution engine may
 infer exact BIT support merely because the source reconciliation succeeds.
 
+Daily prices have their own explicit boundary. `brf_b3_prices_fetch()` reads
+either the complete `PR/BVBG.086` report or the simplified
+`SPRD/BVBG.187` report. A PR archive can contain several complete sequential
+publications of the same session; they are revisions, not partitions. The
+reader audits every embedded `AppHdr/CreDt`, selects only the newest snapshot,
+and durably keeps one compressed XML, one compact futures-only RDS and a
+hash-verified manifest. Once that manifest is valid, the archive is not
+downloaded again; if only the parsed RDS is lost, it is rebuilt locally from
+the compressed snapshot. `brf_b3_prices_compare()` provides a field-by-field
+PR-versus-SPRD audit.
+
 ---
 
 ## 📦 Installation
@@ -102,9 +113,9 @@ update_brfut(
   end = Sys.Date()
 )
 
-# Dates before 2025-12-16 use HTML; on/after use BVBG XML.
+# Dates before 2025-12-15 use HTML; on/after use complete PR/BVBG.086 XML.
 # Override the cutover date if needed:
-# options(brfutures.xml_cutover_date = "2025-12-16")
+# options(brfutures.xml_cutover_date = "2025-12-15")
 ```
 
 ### 3. Retrieve your cached data 📊
@@ -161,7 +172,7 @@ labels:
 | through 2018-09-21 | `change_points` is authoritative; `base = settlement_price - change_points` |
 | 2018-09-24 through 2019-06-28 | `previous_settlement` is the uncorrected prior `PAt`; `corrected_settlement` carries that quote into the current session; `base = corrected_settlement`, `points = settlement_price - base` |
 | from 2019-07-01 through the HTML cutover | `change_points` is authoritative again; the two previous/corrected fields normally contain the same current base |
-| BVBG XML from 2025-12-16 | `PrvsAdjstdQt` is the current adjusted base; `points = settlement_price - previous_settlement` |
+| BVBG XML from 2025-12-15 | `PrvsAdjstdQt` is the current adjusted base; `points = settlement_price - previous_settlement` |
 
 In the middle interval, a small number of contract-launch and expiry rows put
 the next-session corrected quote in the raw corrected column. `brfutures`
@@ -204,13 +215,23 @@ Ownership is also explicit: `brfutures` parses and normalizes the B3 fields;
 rate/PU and adjustment P&L mathematics; a portfolio or backtest engine applies
 the resulting adjustment exactly once per contract and trading session.
 
-### Optional BVBG XML settings
+### Complete and simplified B3 price reports
 ```r
-# Use a browser-like user-agent if the SPRD ZIP endpoint blocks other clients
-options(brfutures.bvbg_user_agent = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+# Read the final complete snapshot and return only BGI/CCM rows.
+prices <- brf_b3_prices_fetch(
+  as.Date("2026-08-05"),
+  report = "full",
+  root = c("BGI", "CCM")
+)
 
-# Point to a local XML file or directory to avoid downloads
-options(brfutures.bvbg_xml_path = "~/Downloads")
+# Audit common values and fields available only in the complete report.
+audit <- brf_b3_prices_compare(
+  seq(as.Date("2026-08-03"), as.Date("2026-08-05"), by = "day"),
+  root = c("BGI", "CCM")
+)
+
+# Use a browser-like user-agent if the B3 ZIP endpoint blocks other clients.
+options(brfutures.bvbg_user_agent = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
 ```
 
 ### 4. Build continuous futures series 📈
@@ -450,10 +471,10 @@ graph TD
     A[Futures Data Request] --> B[Check Local Cache]
     B --> C{Data Available?}
     C -->|Yes| D[Retrieve from Cache]
-    C -->|No| E[Download HTML Bulletin or SPRD ZIP]
-    E --> F[Extract XML if needed]
-    F --> G[Parse Bulletin]
-    G --> H[Cache Parsed Data]
+    C -->|No| E[Download HTML Bulletin or PR ZIP]
+    E --> F[Select Newest Complete PR Snapshot]
+    F --> G[Parse Futures Rows]
+    G --> H[Compress Snapshot and Publish Hash Manifest]
     H --> D
     D --> I[Return Processed Data]
     
@@ -475,11 +496,13 @@ The package organizes your data efficiently:
 │   ├── 📊 parsed/             # Parsed HTML per day (RDS)
 │   └── 📊 WIN.rds             # Parsed rows for the root, updated incrementally
 ├── 📂 BDI/
-│   └── 📂 BVBG/
-│       └── 📂 2026/
-│           ├── 📄 2026-01-08-raw.xml
-│           ├── 📊 2026-01-08-parsed.rds
-│           └── 📊 2026.rds
+│   ├── 📂 reference/prices/full/2026-01-08/
+│   │   ├── 📄 manifest.rds
+│   │   ├── 📂 snapshot/<sha256>.xml.gz
+│   │   └── 📂 parsed/<sha256>.rds
+│   └── 📂 BVBG/2026/
+│       ├── 📊 2026-01-08-parsed.rds  # compact compatibility bridge
+│       └── 📊 2026.rds
 ├── 📄 no-data-html.csv
 ├── 📄 no-data-xml.csv
 ├── 📄 no-data-zip.csv
@@ -487,7 +510,7 @@ The package organizes your data efficiently:
 ```
 
 ### Key Features:
-- 🔒 `update_brfut()` never downloads Excel files and never touches the network when the cache already contains the requested sessions
+- 🔒 `update_brfut()` never downloads Excel files and does not redownload a PR archive whose completed manifest and hashes validate
 - 🔄 If `root` is omitted, the function updates every root that already has a folder inside the cache directory
 - 📅 Passing `start = NULL` resumes from the first day not yet cached for each root and defaults `end` to `Sys.Date()`
 
