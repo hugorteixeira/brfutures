@@ -889,7 +889,10 @@ test_that("corrupted root cache is rebuilt automatically", {
   sample_html(html_path)
   root_rds <- file.path(cache, "WIN", "WIN.rds")
   writeLines("not an rds file", root_rds)
-  data <- brfutures:::`.brf_load_root_data`("WIN")
+  expect_warning(
+    data <- brfutures:::`.brf_load_root_data`("WIN"),
+    "Failed to read root cache"
+  )
   expect_s3_class(data, "data.frame")
   expect_true(nrow(data) > 0)
   expect_equal(unique(data$root), "WIN")
@@ -927,7 +930,10 @@ test_that("corrupted aggregate cache is rebuilt automatically", {
   saveRDS(data, file.path(root_dir, "WIN.rds"))
   agg_path <- file.path(cache, "aggregate.rds")
   writeLines("not an rds file", agg_path)
-  result <- get_brfut("WINM24", treatment = "raw")
+  expect_warning(
+    result <- get_brfut("WINM24", treatment = "raw"),
+    "Failed to read aggregate cache"
+  )
   expect_s3_class(result, "data.frame")
   expect_equal(unique(result$ticker), "WINM24")
   expect_error(readRDS(agg_path), NA)

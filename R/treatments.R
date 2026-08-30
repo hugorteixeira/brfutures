@@ -138,17 +138,6 @@
   }
   out <- .brf_regular_treatment(df, ...)
   names(out) <- .brf_standardize_names(names(out))
-  # legacy_fix <- c(
-  #   contr = "contracts_traded",
-  #   abert_1 = "open_interest",
-  #   fech_2 = "close_interest",
-  #   num = "volume"
-  # )
-  # hit <- names(out) %in% names(legacy_fix)
-  # if (any(hit)) {
-  #   old <- names(out)[hit]
-  #   names(out)[hit] <- legacy_fix[old]
-  # }
   numeric_cols <- intersect(
     c("open_interest", "close_interest", "contracts_traded", "volume"),
     names(out)
@@ -181,10 +170,6 @@
 
 .brf_treatment_standard_tibble <- function(df, ...) {
   tibble::as_tibble(.brf_standard_treatment(df, ...))
-}
-
-.brf_treatment_ohlcv_xts <- function(df, ...) {
-  .brf_treatment_standard_xts(df, ...)
 }
 
 .brf_treatment_standard_xts <- function(df, ...) {
@@ -279,7 +264,6 @@
   eps = 0 # numeric tolerance
 ) {
   x <- .brf_treatment_standard_xts(df, ...)
-  print(str(x))
   .brf_drop_all_zero_rows_xts(x, cols = cols, eps = eps)
 }
 
@@ -559,7 +543,6 @@
 }
 
 .brf_add_futures_attrs <- function(data, ticker) {
-  print(ticker)
   if (is.null(data)) {
     return(data)
   }
@@ -588,6 +571,20 @@
     data <- .brf_add_futures_generic(data, ticker)
   }
   return(data)
+}
+
+.brf_register_cash_settled_future <- function(...) {
+  withCallingHandlers(
+    FinancialInstrument::future(..., underlying_id = NULL),
+    warning = function(condition) {
+      if (identical(
+        conditionMessage(condition),
+        "underlying_id should only be NULL for cash-settled futures"
+      )) {
+        invokeRestart("muffleWarning")
+      }
+    }
+  )
 }
 
 .brf_set_futures_attrs <- function(data,
@@ -655,7 +652,7 @@
   attr_slippage <- attr(data, "slippage")
   attr_fees <- attr(data, "fees")
   FinancialInstrument::currency("USD")
-  FinancialInstrument::future(ticker,
+  .brf_register_cash_settled_future(ticker,
     currency = "USD",
     multiplier = 0.2, tick_size = 5,
     identifiers = list(slippage = attr_slippage, fees = attr_fees),
@@ -675,7 +672,7 @@
   attr_slippage <- attr(data, "slippage")
   attr_fees <- attr(data, "fees")
   FinancialInstrument::currency("USD")
-  FinancialInstrument::future(ticker,
+  .brf_register_cash_settled_future(ticker,
     currency = "USD",
     multiplier = 10, tick_size = 0.5,
     identifiers = list(slippage = attr_slippage, fees = attr_fees),
@@ -755,7 +752,7 @@
       tickvalue = specification$tick_size_brl_per_btc * regimes[[1L]]
     )
     FinancialInstrument::currency("BRL")
-    FinancialInstrument::future(
+    .brf_register_cash_settled_future(
       ticker,
       currency = "BRL",
       multiplier = regimes[[1L]],
@@ -842,14 +839,12 @@
   attr_slippage <- attr(data, "slippage")
   attr_fees <- attr(data, "fees")
   FinancialInstrument::currency("USD")
-  FinancialInstrument::future(ticker,
+  .brf_register_cash_settled_future(ticker,
     currency = "USD",
     multiplier = 450, tick_size = 0.01,
     identifiers = list(slippage = attr_slippage, fees = attr_fees),
     overwrite = TRUE
   )
-  cat("\nCall bt_eldoc() or bt_batch() using this ticker: ", ticker, ".\n")
-
   return(data)
 }
 .brf_add_futures_dol <- function(data, ticker) {
@@ -864,14 +859,12 @@
   attr_slippage <- attr(data, "slippage")
   attr_fees <- attr(data, "fees")
   FinancialInstrument::currency("USD")
-  FinancialInstrument::future(ticker,
+  .brf_register_cash_settled_future(ticker,
     currency = "USD",
     multiplier = 450, tick_size = 0.01,
     identifiers = list(slippage = attr_slippage, fees = attr_fees),
     overwrite = TRUE
   )
-  cat("\nCall bt_eldoc() or bt_batch() using this ticker: ", ticker, ".\n")
-
   return(data)
 }
 .brf_add_futures_di <- function(data, ticker) {
@@ -897,13 +890,12 @@
   attr_slippage <- attr(data, "slippage")
   attr_fees <- attr(data, "fees")
   FinancialInstrument::currency("USD")
-  FinancialInstrument::future(ticker,
+  .brf_register_cash_settled_future(ticker,
     currency = "USD",
     multiplier = 1, tick_size = 0.01,
     identifiers = list(slippage = attr_slippage, fees = attr_fees),
     overwrite = TRUE
   )
-  cat("\nCall bt_eldoc() or bt_batch() using this ticker: ", ticker, ".\n")
   return(data)
 }
 .brf_add_futures_icf <- function(data, ticker) {
@@ -917,7 +909,6 @@
 
   attr_slippage <- attr(data, "slippage")
   attr_fees <- attr(data, "fees")
-  print(str(data))
   FinancialInstrument::currency("USD")
   FinancialInstrument::future(ticker,
     currency = "USD",
@@ -925,7 +916,6 @@
     identifiers = list(slippage = attr_slippage, fees = attr_fees),
     overwrite = TRUE
   )
-  cat("\nCall bt_eldoc() or bt_batch() using this ticker: ", ticker, ".\n")
   return(data)
 }
 .brf_add_futures_ccm <- function(data, ticker) {
@@ -946,8 +936,6 @@
     identifiers = list(slippage = attr_slippage, fees = attr_fees),
     overwrite = TRUE
   )
-  cat("\nCall bt_eldoc() or bt_batch() using this ticker: ", ticker, ".\n")
-
   return(data)
 }
 .brf_add_futures_bgi <- function(data, ticker) {
@@ -968,8 +956,6 @@
     identifiers = list(slippage = attr_slippage, fees = attr_fees),
     overwrite = TRUE
   )
-  cat("\nCall bt_eldoc() or bt_batch() using this ticker: ", ticker, ".\n")
-
   return(data)
 }
 .brf_add_futures_generic <- function(data, ticker) {
@@ -990,7 +976,5 @@
     identifiers = list(slippage = attr_slippage, fees = attr_fees),
     overwrite = TRUE
   )
-  cat("\nCall bt_eldoc() or bt_batch() using this ticker: ", ticker, ".\n")
-
   return(data)
 }

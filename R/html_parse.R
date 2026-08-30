@@ -127,16 +127,21 @@
       }
     }
   }
-  data_cols <- if (nrow(mat) > 0) ncol(mat) else length(header)
   expand_header_tokens <- function(x) {
     # First normalize whitespace: convert tabs and multiple spaces to single space
     fixed <- gsub("\\s+", " ", x, perl = TRUE)
     # Split before known column keywords ONLY when concatenated (no space before)
-    # This handles "PREÇOAJUSTE" -> "PREÇO|AJUSTE" but keeps "ÚLT. PREÇO" as one token
-    keywords <- c("AJUSTE", "VAR", "ÚLT", "ULT", "PREÇO", "PRECO", "OF", "COMPRA", "VENDA", "PTOS")
+    # Split concatenated Portuguese headers while retaining compound labels.
+    keywords <- c(
+      "AJUSTE", "VAR", "\u00daLT", "ULT", "PRE\u00c7O", "PRECO",
+      "OF", "COMPRA", "VENDA", "PTOS"
+    )
     for (kw in keywords) {
       # Match keyword when preceded directly by a letter (no space)
-      pattern <- sprintf("(?<=[A-ZÁÉÍÓÚÃÕÇ])(?=%s)", kw)
+      pattern <- sprintf(
+        "(?<=[A-Z\u00c1\u00c9\u00cd\u00d3\u00da\u00c3\u00d5\u00c7])(?=%s)",
+        kw
+      )
       fixed <- gsub(pattern, "|", fixed, perl = TRUE)
     }
     # Split when lowercase followed by uppercase (word boundary)
@@ -157,16 +162,18 @@
 
       # Known 2-word patterns that should stay together
       known_two_word <- c(
-        "ÚLT. PREÇO", "VAR. PTOS.",
-        "PREÇO ABERT.", "PREÇO MIN.", "PREÇO MAX.", "PREÇO MED.",
-        "PREÇO MÍN.", "PREÇO MÁX.", "PREÇO MÉD.",
+        "\u00daLT. PRE\u00c7O", "VAR. PTOS.",
+        "PRE\u00c7O ABERT.", "PRE\u00c7O MIN.", "PRE\u00c7O MAX.",
+        "PRE\u00c7O MED.", "PRE\u00c7O M\u00cdN.",
+        "PRE\u00c7O M\u00c1X.", "PRE\u00c7O M\u00c9D.",
         "AJUSTE ANTER.", "AJUSTE CORRIG."
       )
 
       # If token has multiple words, try to group into known patterns
       if (word_count >= 2) {
         # Check if the entire token is a known pattern
-        if (token %in% known_two_word || token %in% c("ÚLT. OF. COMPRA", "ÚLT. OF. VENDA")) {
+        if (token %in% known_two_word ||
+            token %in% c("\u00daLT. OF. COMPRA", "\u00daLT. OF. VENDA")) {
           expanded_tokens <- c(expanded_tokens, token)
           next
         }
@@ -178,7 +185,8 @@
           # Try to match 3-word patterns first
           if (i + 2 <= length(parts)) {
             three_word <- paste(parts[i:(i+2)], collapse = " ")
-            if (three_word %in% c("ÚLT. OF. COMPRA", "ÚLT. OF. VENDA")) {
+            if (three_word %in%
+                c("\u00daLT. OF. COMPRA", "\u00daLT. OF. VENDA")) {
               expanded_tokens <- c(expanded_tokens, three_word)
               i <- i + 3
               next
@@ -261,7 +269,9 @@
 
       # Check for duplicate columns at the end (suggests two-row header)
       dup_at_end <- duplicated(new_header) | duplicated(new_header, fromLast = TRUE)
-      tail_dups <- tail(which(dup_at_end), n = sum(tail(dup_at_end, 5)))
+      tail_dups <- utils::tail(
+        which(dup_at_end), n = sum(utils::tail(dup_at_end, 5))
+      )
 
       # If we have duplicates at the end that match columns from the beginning,
       # it's likely a two-row header - remove the duplicates
@@ -313,7 +323,12 @@
         if (length(tokens) >= 2) {
           # Check if first two tokens form a known pattern
           two_token <- paste(tokens[1:2], collapse = " ")
-          known_patterns <- c("AJUSTE ANTER.", "AJUSTE CORRIG.", "PREÇO ABERT.", "PREÇO MIN.", "PREÇO MAX.", "PREÇO MED.", "PREÇO MÍN.", "PREÇO MÁX.", "PREÇO MÉD.")
+          known_patterns <- c(
+            "AJUSTE ANTER.", "AJUSTE CORRIG.",
+            "PRE\u00c7O ABERT.", "PRE\u00c7O MIN.", "PRE\u00c7O MAX.",
+            "PRE\u00c7O MED.", "PRE\u00c7O M\u00cdN.",
+            "PRE\u00c7O M\u00c1X.", "PRE\u00c7O M\u00c9D."
+          )
           if (two_token %in% known_patterns) {
             return(two_token)
           }
@@ -331,7 +346,7 @@
   if (length(expanded) == ncol(df)) {
     names(df) <- expanded
   } else if (length(expanded) > length(current_headers) && length(expanded) >= ncol(df)) {
-    names(df) <- head(expanded, ncol(df))
+    names(df) <- utils::head(expanded, ncol(df))
   }
 
   if (any(names(df) == "Cotacoes")) {

@@ -487,7 +487,7 @@
   names_order <- vapply(candidates, `[[`, character(1L), "entry")
   candidates <- candidates[order(created, names_order, na.last = NA)]
   if (isTRUE(latest)) {
-    candidates <- tail(candidates, 1L)
+    candidates <- utils::tail(candidates, 1L)
   }
 
   results <- vector("list", length(candidates))

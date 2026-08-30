@@ -66,11 +66,6 @@
   .brf_di_env$session_calendar
 }
 
-.brf_di_first_session_day <- function(year, month, cal = NULL) {
-  first_day <- as.Date(sprintf("%04d-%02d-01", year, month))
-  bizdays::following(first_day, .brf_di_resolve_session_calendar(cal))
-}
-
 .brf_di_get_tick_size <- function(mm, basis_date, rule_change_date = as.Date("2025-08-18")) {
   basis_date <- as.Date(basis_date)
   if (basis_date < rule_change_date) {
@@ -760,8 +755,6 @@ di_ohlc_to_pu_augmented_xts <- function(x,
   if (!inherits(basis, "POSIXt")) {
     basis <- as.POSIXct(basis, tz = if (!is.null(tz_val)) tz_val else "UTC")
   }
-  pu_cols <- c("PU_open", "PU_high", "PU_low", "PU_close")
-
   maturity_vec <- maturity_date
   if (is.null(maturity_vec)) {
     maturity_vec <- attr(x, "maturity", exact = TRUE)

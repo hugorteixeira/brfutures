@@ -353,7 +353,7 @@
     if (!length(lines)) {
       break
     }
-    tail_lines <- tail(c(tail_lines, lines), 20L)
+    tail_lines <- utils::tail(c(tail_lines, lines), 20L)
     combined <- c(pending, lines)
     starts <- grep(group_open_pattern, combined, perl = TRUE)
     ends <- grep(group_close_pattern, combined, perl = TRUE)
@@ -385,7 +385,7 @@
         if (!length(start_candidates) || !length(end_candidates)) {
           next
         }
-        start <- tail(start_candidates, 1L)
+        start <- utils::tail(start_candidates, 1L)
         end <- end_candidates[[1L]]
         if (!any(future_hits >= start & future_hits <= end)) {
           next
@@ -399,8 +399,8 @@
       }
     }
 
-    last_start <- if (length(starts)) tail(starts, 1L) else integer()
-    last_end <- if (length(ends)) tail(ends, 1L) else integer()
+    last_start <- if (length(starts)) utils::tail(starts, 1L) else integer()
+    last_end <- if (length(ends)) utils::tail(ends, 1L) else integer()
     if (length(last_start) &&
         (!length(last_end) || last_start > last_end)) {
       pending <- combined[last_start:length(combined)]
@@ -413,7 +413,7 @@
   }
   non_empty_tail <- trimws(tail_lines[nzchar(trimws(tail_lines))])
   final_line <- if (length(non_empty_tail)) {
-    tail(non_empty_tail, 1L)
+    utils::tail(non_empty_tail, 1L)
   } else {
     ""
   }

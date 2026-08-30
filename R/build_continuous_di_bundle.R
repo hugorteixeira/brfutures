@@ -289,15 +289,13 @@
                                      active,
                                      spec,
                                      synthetic_ticker) {
-  raw_complete <- with(
-    execution,
-    is.finite(rate_open) & is.finite(rate_high) &
-      is.finite(rate_low) & is.finite(rate_close) &
-      is.finite(pu_open) & pu_open > 0 &
-      is.finite(pu_high) & pu_high > 0 &
-      is.finite(pu_low) & pu_low > 0 &
-      is.finite(pu_close) & pu_close > 0
-  )
+  raw_complete <-
+    is.finite(execution$rate_open) & is.finite(execution$rate_high) &
+    is.finite(execution$rate_low) & is.finite(execution$rate_close) &
+    is.finite(execution$pu_open) & execution$pu_open > 0 &
+    is.finite(execution$pu_high) & execution$pu_high > 0 &
+    is.finite(execution$pu_low) & execution$pu_low > 0 &
+    is.finite(execution$pu_close) & execution$pu_close > 0
   row_supported <- execution$adjustment_final &
     execution$adjustment_provenance_complete &
     execution$availability_observed & raw_complete
@@ -615,7 +613,7 @@
     "di_roll_events", "official_sessions", "contract_specs",
     "cost_models", "provenance"
   )
-  fingerprints <- setNames(lapply(components, function(component) {
+  fingerprints <- stats::setNames(lapply(components, function(component) {
     .brf_di_bundle_component_fingerprint(bundle[[component]])
   }), components)
   unlist(fingerprints, use.names = TRUE)

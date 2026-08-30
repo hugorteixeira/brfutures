@@ -25,6 +25,8 @@ get_brfut(
 `"standard"`, `"ohlcv_xts"`) or a function that receives the raw data frame
 and returns the desired shape.}
 
+\item{add_attrs}{When `TRUE` (default), attach futures metadata to the result.}
+
 \item{rebuild_agg}{Set to `TRUE` to rebuild aggregates before retrieving
 data. The relevant root caches are rebuilt from the raw HTML/XML files when
 necessary.}

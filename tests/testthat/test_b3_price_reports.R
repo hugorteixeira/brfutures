@@ -302,10 +302,6 @@ test_that("wrong-date legacy SPRD cache is rejected instead of relabelled", {
   expect_equal(fetched$contract_code, "BGIF27")
   manifest <- attr(fetched, "brf_b3_price_manifest")
   expect_false(identical(manifest$source_origin, "legacy_bvbg_raw_xml"))
-  expect_equal(
-    brfutures:::`.brf_bvbg_zip_names`(as.Date("2026-06-01")),
-    "SPRD260601.zip"
-  )
 })
 
 test_that("normal XML pipeline uses complete PR from the corrected cutover", {

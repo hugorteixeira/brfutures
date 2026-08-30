@@ -1,7 +1,7 @@
 Package: brfutures
 Type: Package
 Title: Brazilian Futures Data Tools
-Version: 0.0.3
+Version: 0.0.4
 Authors@R: person(
     given = "Hugo",
     family = "Rzepian Teixeira",
@@ -14,9 +14,12 @@ Description: Lightweight tools to download, parse, cache, and retrieve B3
     helpers that keep a hash-verified local cache in sync and fast accessors for
     cached contract data.
 License: GPL (>= 3)
+Depends:
+    R (>= 3.5.0)
 Encoding: UTF-8
-LazyData: true
 Imports:
+    FinancialInstrument,
+    lubridate,
     digest,
     httr,
     xml2,
@@ -24,7 +27,8 @@ Imports:
     xts,
     tibble,
     bizdays,
-    positionsizer
+    positionsizer,
+    zoo
 Suggests:
     testthat (>= 3.2.1),
     DBI,

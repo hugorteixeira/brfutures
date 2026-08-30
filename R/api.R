@@ -91,7 +91,7 @@ update_brfut <- function(root = NULL,
       if (!no_data && identical(source, "xml")) {
         current_source <- NA_character_
         if ("source" %in% names(existing) && nrow(existing)) {
-          current_source <- unique(na.omit(as.character(existing$source)))[1]
+          current_source <- unique(stats::na.omit(as.character(existing$source)))[1]
         }
         if (!identical(current_source, "xml")) {
           existing <- NULL
@@ -373,7 +373,6 @@ update_brfut <- function(root = NULL,
       }
       next
     }
-    dest <- .brf_raw_path(root, day_date)
     downloaded <- .brf_download_html(day_date, root, quiet = quiet)
     newly_downloaded <- c(newly_downloaded, downloaded)
     ensure_path(downloaded, force = FALSE)
@@ -655,6 +654,7 @@ update_brfut_agg <- function(root = NULL,
 #' @param treatment Either the name of a built-in treatment (e.g. `"raw"`,
 #'   `"standard"`, `"ohlcv_xts"`) or a function that receives the raw data frame
 #'   and returns the desired shape.
+#' @param add_attrs When `TRUE` (default), attach futures metadata to the result.
 #' @param rebuild_agg Set to `TRUE` to rebuild aggregates before retrieving
 #'   data. The relevant root caches are rebuilt from the raw HTML/XML files when
 #'   necessary.

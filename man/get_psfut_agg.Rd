@@ -2,7 +2,6 @@
 % Please edit documentation in R/postgres.R
 \name{get_psfut_agg}
 \alias{get_psfut_agg}
-\alias{get_ps_agg}
 \title{Retrieve aggregated futures data from PostgreSQL}
 \usage{
 get_psfut_agg(
@@ -21,8 +20,6 @@ get_psfut_agg(
   password = getOption("brfutures.postgres.password", NULL),
   port = getOption("brfutures.postgres.port", 5432)
 )
-
-get_ps_agg(...)
 }
 \arguments{
 \item{root}{Optional character vector restricting the returned roots.}

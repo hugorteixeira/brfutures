@@ -32,14 +32,6 @@
   dir
 }
 
-.brf_raw_path <- function(root, date, source = c("html")) {
-  source <- match.arg(source)
-  root <- .brf_normalize_root(root)
-  date <- .brf_normalize_date(date)
-  ext <- "html"
-  file.path(.brf_raw_dir(root), paste0(root, "_", format(date, "%Y-%m-%d"), ".", ext))
-}
-
 .brf_parsed_dir <- function(root, create = TRUE) {
   dir <- file.path(.brf_root_dir(root, create = create), "parsed")
   if (create && !dir.exists(dir)) {

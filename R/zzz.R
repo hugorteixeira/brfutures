@@ -1,13 +1,3 @@
-.onAttach <- function(libname, pkgname) {
-  msg <- paste0(
-    "brfutures loaded. Configure the cache with ",
-    "options(brfutures.cache_dir = '~/some/path') before calling update_brfut()."
-  )
-  packageStartupMessage(msg)
-}
-
-# R/zzz.R
-
 #' @keywords internal
 .onLoad <- function(libname, pkgname) {
   # Attempt to load bizdays built-in calendars

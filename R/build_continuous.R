@@ -177,11 +177,11 @@ build_forward_adjusted <- function(data,
 
   by_date <- split(df, df$date)
   lock_roll <- isTRUE(lock_roll)
-  roll_info <- aggregate(roll_date ~ ticker, df, max)
-  maturity_info <- aggregate(maturity ~ ticker, df, max)
+  roll_info <- stats::aggregate(roll_date ~ ticker, df, max)
+  maturity_info <- stats::aggregate(maturity ~ ticker, df, max)
   roll_info <- merge(roll_info, maturity_info, by = "ticker", all.x = TRUE)
   roll_info <- roll_info[order(roll_info$roll_date, roll_info$maturity, roll_info$ticker), , drop = FALSE]
-  ticker_rank <- setNames(seq_len(nrow(roll_info)), roll_info$ticker)
+  ticker_rank <- stats::setNames(seq_len(nrow(roll_info)), roll_info$ticker)
   trading_days <- sort(unique(df$date))
   selected_list <- vector("list", length(trading_days))
   selected_count <- 0L
@@ -402,7 +402,7 @@ build_forward_adjusted <- function(data,
   }
 
   tickers <- selected$ticker
-  changes <- which(tickers[-1L] != head(tickers, -1L)) + 1L
+  changes <- which(tickers[-1L] != utils::head(tickers, -1L)) + 1L
   if (!length(changes)) {
     return(data.frame(
       from_ticker = character(),

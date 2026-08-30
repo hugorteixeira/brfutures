@@ -552,7 +552,7 @@ build_continuous_di <- function(data,
     ))
   }
   tickers <- selected$ticker
-  changes <- which(tickers[-1L] != head(tickers, -1L)) + 1L
+  changes <- which(tickers[-1L] != utils::head(tickers, -1L)) + 1L
   if (!length(changes)) {
     return(data.frame(
       from_ticker = character(),
@@ -640,7 +640,7 @@ build_continuous_di <- function(data,
   if (!length(vals)) {
     return(NA_real_)
   }
-  idx <- tail(which(!is.na(vals)), 1L)
+  idx <- utils::tail(which(!is.na(vals)), 1L)
   if (length(idx)) {
     return(vals[idx])
   }
@@ -1098,7 +1098,7 @@ build_continuous_di <- function(data,
   cal_use <- .brf_di_resolve_calendar(cal)
   last_basis <- max(selected$date, na.rm = TRUE)
   est_maturity <- if (identical(selection_mode, "calendar_horizon")) {
-    as.Date(tail(selected$maturity, 1L))
+    as.Date(utils::tail(selected$maturity, 1L))
   } else {
     bizdays::add.bizdays(last_basis, target_days, cal_use)
   }

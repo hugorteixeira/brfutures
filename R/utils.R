@@ -76,14 +76,6 @@
   as.Date("2025-12-15")
 }
 
-.brf_source_for_date <- function(date) {
-  date <- .brf_normalize_date(date)
-  if (is.na(date)) {
-    return("html")
-  }
-  if (date >= .brf_xml_cutover_date()) "xml" else "html"
-}
-
 .brf_xts_apply_timezone <- function(x, tz, keep_time = TRUE) {
   if (!xts::is.xts(x)) {
     return(x)
@@ -308,7 +300,7 @@
         if (!length(col)) {
           return(NA_real_)
         }
-        median(abs(col), na.rm = TRUE)
+        stats::median(abs(col), na.rm = TRUE)
       }, numeric(1))
       if (any(is.finite(med))) {
         main_pos <- idx[which.max(med)]

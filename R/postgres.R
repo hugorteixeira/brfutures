@@ -426,9 +426,3 @@ get_psfut_agg <- function(root = NULL,
   result <- treatment_fn(data)
   .brf_ps_apply_maturity(result)
 }
-
-#' @rdname get_psfut_agg
-#' @export
-get_ps_agg <- function(...) {
-  get_psfut_agg(...)
-}
