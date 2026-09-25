@@ -359,7 +359,7 @@
     }
     return(.brf_empty_bulletin())
   }
-  data
+  .brf_b3_price_filter_instruments(data)
 }
 
 .brf_save_root_data <- function(root, data) {
@@ -383,7 +383,7 @@
     }
     return(.brf_empty_bulletin())
   }
-  data
+  .brf_b3_price_filter_instruments(data)
 }
 
 .brf_save_aggregate <- function(data) {

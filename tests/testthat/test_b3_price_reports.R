@@ -76,6 +76,73 @@ price_report_archive <- function(directory, prefix, xml_paths) {
   outer
 }
 
+test_that("official non-futures identities do not hide other instruments", {
+  rows <- data.frame(
+    contract_code = c("SOLN39", "SOLN39", "SOLV26", "SOLN39", NA),
+    source_instrument_id = c("200002158278", "400000000039", "400000137300", NA, "200002158278"),
+    close = seq_len(5)
+  )
+  expect_equal(brfutures:::.brf_b3_price_filter_instruments(rows), rows[-1, ])
+  names(rows)[1] <- "ticker"
+  expect_equal(brfutures:::.brf_b3_price_filter_instruments(rows), rows[-1, ])
+  expect_identical(brfutures:::.brf_b3_price_filter_instruments(rows[FALSE, ]), rows[FALSE, ])
+  expect_identical(brfutures:::.brf_b3_price_filter_instruments(rows["ticker"]), rows["ticker"])
+})
+
+test_that("PR reads and root updates exclude identified BDR collisions from old caches", {
+  fixture_dir <- tempfile("b3-identity-fixture-")
+  cache_dir <- tempfile("b3-identity-cache-")
+  dir.create(fixture_dir)
+  dir.create(cache_dir)
+  on.exit(unlink(c(fixture_dir, cache_dir), recursive = TRUE), add = TRUE)
+  rows <- data.frame(
+    date = "2026-09-24",
+    contract = c("SOLN39", "SOLV26"),
+    instrument_id = c("200002158278", "400000137300"),
+    trades = 1, contracts = 1, volume = 100,
+    open_interest = NA_real_, open = c(39.95, 115.48),
+    low = c(39.95, 115.48), high = c(39.95, 115.48),
+    average = c(39.95, 115.48), close = c(39.95, 115.48),
+    settlement = c(NA_real_, 117.669)
+  )
+  xml <- file.path(fixture_dir, "BVBG.086_IDENTITY.xml")
+  writeLines(price_report_xml("BVBG.086.01", "2026-09-24T23:00:00Z", rows), xml)
+  archive <- price_report_archive(fixture_dir, "PR260924", xml)
+  old <- options(
+    brfutures.cache_dir = cache_dir,
+    brfutures.xml_cutover_date = as.Date("2025-12-15"),
+    brfutures.b3_reference_download_hook = function(url, destination) {
+      file.copy(archive, destination, overwrite = TRUE)
+    }
+  )
+  on.exit(options(old), add = TRUE)
+  day <- as.Date("2026-09-24")
+  fresh <- brf_b3_prices_fetch(day, root = "SOL", quiet = TRUE)
+  expect_equal(fresh$contract_code, "SOLV26")
+  options(brfutures.b3_reference_download_hook = function(...) stop("unexpected download"))
+  cached <- brf_b3_prices_fetch(day, root = "SOL", quiet = TRUE)
+  expect_equal(cached$contract_code, "SOLV26")
+
+  contaminated <- data.frame(
+    date = day, root = "SOL", ticker = rows$contract,
+    contract_code = rows$contract, source_instrument_id = rows$instrument_id,
+    source = "xml", close = rows$close
+  )
+  root_path <- brfutures:::.brf_root_data_path("SOL", create = TRUE)
+  aggregate_path <- brfutures:::.brf_aggregate_path(create = TRUE)
+  saveRDS(contaminated, root_path)
+  saveRDS(contaminated, aggregate_path)
+  expect_equal(brfutures:::.brf_load_root_data("SOL")$ticker, "SOLV26")
+  expect_equal(get_brfut_agg(root = "SOL", treatment = function(x) x)$ticker, "SOLV26")
+  expect_equal(readRDS(root_path), contaminated)
+  expect_equal(readRDS(aggregate_path), contaminated)
+
+  update_brfut(root = "SOL", start = day, end = day, quiet = TRUE)
+  expect_equal(readRDS(root_path)$ticker, "SOLV26")
+  expect_equal(readRDS(aggregate_path)$ticker, "SOLV26")
+  expect_equal(readRDS(root_path)$close, 115.48)
+})
+
 test_that("full PR cache selects only the final snapshot and is reparsable", {
   fixture_dir <- tempfile("b3-price-fixture-")
   cache_dir <- tempfile("b3-price-cache-")

@@ -194,6 +194,7 @@ update_brfut <- function(root = NULL,
       combined <- combined[!(combined$date %in% skip_dates), , drop = FALSE]
     }
     combined$root <- rep(root_norm, nrow(combined))
+    combined <- .brf_b3_price_filter_instruments(combined)
     combined <- combined[order(combined$date, combined$contract_code, combined$ticker), , drop = FALSE]
     combined <- .brf_deduplicate_contract_rows(combined)
   }

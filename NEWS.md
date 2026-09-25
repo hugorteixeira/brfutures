@@ -1,3 +1,13 @@
+# brfutures 0.0.7
+
+- Exclude the officially identified SOLN39 BDR from futures price results and
+  existing root/aggregate caches. The check uses both its ticker and B3
+  instrument id; unknown identities and a future with the same ticker and a
+  different id remain eligible. Raw B3 reports stay intact, and ordinary
+  updates publish the corrected root and aggregate rows.
+- Add offline regressions for fresh and cached PR reads, read-only cache
+  filtering and persistent repair through `update_brfut()`.
+
 # brfutures 0.0.6
 
 - Preserve DI rows whose maturity or observation date is unresolved when

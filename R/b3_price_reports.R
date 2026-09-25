@@ -75,6 +75,26 @@
   )
 }
 
+.brf_b3_price_filter_instruments <- function(data) {
+  code_column <- intersect(c("ticker", "contract_code"), names(data))
+  if (!is.data.frame(data) || !nrow(data) || !length(code_column) ||
+      !"source_instrument_id" %in% names(data)) {
+    return(data)
+  }
+  # BVBG.028, 2026-09-24: SOLN39 is EqtyInf / ISIN BRSOLNBDR002,
+  # instrument 200002158278, not the SOL July-2039 futures contract.
+  # IN260924.zip SHA-256:
+  # 23fdc448601b31f0127625fbaa124ef98591bb0c7c7cd651ec9f18ddf977a8fd
+  # Match both identities; ticker shape or an unknown id cannot exclude a row.
+  non_futures <- c(SOLN39 = "200002158278")
+  code <- toupper(trimws(as.character(data[[code_column[[1L]]]])))
+  instrument_id <- trimws(as.character(data$source_instrument_id))
+  known_id <- unname(non_futures[code])
+  exclude <- !is.na(known_id) & !is.na(instrument_id) & instrument_id == known_id
+  if (!any(exclude)) return(data)
+  data[!exclude, , drop = FALSE]
+}
+
 .brf_b3_price_contract_root <- function(code) {
   sub(
     "[FGHJKMNQUVXZ][0-9]{2}$",
@@ -1056,7 +1076,9 @@ brf_b3_prices_fetch <- function(date,
       quiet = quiet
     )
   }
-  out <- built$data
+  # Raw parsed candidates retain their original source evidence. Apply the
+  # identity check to both fresh and previously verified parsed caches.
+  out <- .brf_b3_price_filter_instruments(built$data)
   if (!"settlement_available_at" %in% names(out)) {
     out$settlement_available_at <- out$available_at
     out$settlement_available_at[is.na(out$settlement_price)] <- as.POSIXct(
