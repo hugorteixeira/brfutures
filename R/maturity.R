@@ -174,5 +174,23 @@
     last_trade <- resolved_last_trade
   }
   df$last_trade_date <- as.Date(last_trade)
+
+  fill_rule <- function(field, date, resolved_date) {
+    rule <- if (field %in% names(df)) {
+      as.character(df[[field]])
+    } else {
+      rep(NA_character_, nrow(df))
+    }
+    missing <- is.na(rule) | !nzchar(trimws(rule))
+    matches <- !is.na(date) & !is.na(resolved_date) & date == resolved_date
+    fill <- missing & matches
+    # Do not label a caller-supplied, different date with canonical provenance.
+    rule[fill] <- resolved[[field]][matched_group][fill]
+    rule
+  }
+  df$maturity_rule <- fill_rule("maturity_rule", df$maturity, resolved_maturity)
+  df$last_trade_rule <- fill_rule(
+    "last_trade_rule", df$last_trade_date, resolved_last_trade
+  )
   df
 }

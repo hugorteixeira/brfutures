@@ -1,3 +1,13 @@
+# brfutures 0.0.8
+
+- Retain canonical maturity and last-trade rules in cached data-frame getters,
+  so continuous-series consumers receive the provenance paired with the dates.
+  Existing published rules are preserved; missing rules are filled only when
+  the retained date matches the canonical source. Unresolved dates and differing
+  caller-supplied dates never acquire invented provenance.
+- Add offline regressions through the real aggregate and dated getters,
+  covering official and historical rules, existing provenance and unknowns.
+
 # brfutures 0.0.7
 
 - Exclude the officially identified SOLN39 BDR from futures price results and
