@@ -272,7 +272,8 @@ update_brfut <- function(root = NULL,
   }
   existing_files <- .brf_existing_dates(root)
   if (length(skip_dates)) {
-    existing_files <- setdiff(existing_files, skip_dates)
+    # Subsetting also preserves Date on R versions where setdiff drops it.
+    existing_files <- existing_files[!existing_files %in% skip_dates]
   }
   current <- .brf_load_root_data(root)
   start_date <- start

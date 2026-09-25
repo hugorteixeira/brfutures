@@ -320,7 +320,8 @@
     return(as.Date(character()))
   }
   parsed <- vapply(files, .brf_extract_report_date_from_name, as.Date(NA))
-  parsed[!is.na(parsed)]
+  # vapply drops Date attributes; resume bounds must remain calendar dates.
+  as.Date(parsed[!is.na(parsed)], origin = "1970-01-01")
 }
 
 .brf_raw_files_for_date <- function(root, date) {

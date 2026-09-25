@@ -939,6 +939,59 @@ test_that("corrupted aggregate cache is rebuilt automatically", {
   expect_error(readRDS(agg_path), NA)
 })
 
+test_that("cached HTML dates retain Date class, including empty caches", {
+  cache <- tempfile("brf-resume-")
+  old_opt <- getOption("brfutures.cache_dir")
+  on.exit({
+    options(brfutures.cache_dir = old_opt)
+    unlink(cache, recursive = TRUE)
+  }, add = TRUE)
+  options(brfutures.cache_dir = cache)
+  expect_identical(brfutures:::`.brf_existing_dates`("WIN"), as.Date(character()))
+  raw_dir <- file.path(cache, "WIN", "raw")
+  dir.create(raw_dir, recursive = TRUE)
+  expect_identical(brfutures:::`.brf_existing_dates`("WIN"), as.Date(character()))
+  file.create(file.path(raw_dir, c("WIN_2024-04-02.html", "WIN_2024-04-03.html")))
+  dates <- brfutures:::`.brf_existing_dates`("WIN")
+  expect_s3_class(dates, "Date")
+  expect_equal(unname(dates), as.Date(c("2024-04-02", "2024-04-03")))
+})
+
+test_that("public updates resume cached HTML history without an explicit start", {
+  cache <- tempfile("brf-resume-")
+  old_opt <- getOption("brfutures.cache_dir")
+  on.exit({
+    options(brfutures.cache_dir = old_opt)
+    unlink(cache, recursive = TRUE)
+  }, add = TRUE)
+  options(brfutures.cache_dir = cache)
+  download_log <- character()
+  testthat::local_mocked_bindings(
+    .brf_download_html = function(date, root, quiet) {
+      download_log <<- c(download_log, format(date, "%Y-%m-%d"))
+      path <- file.path(brfutures:::`.brf_raw_dir`(root),
+        paste0(root, "_", format(date, "%Y-%m-%d"), ".html"))
+      sample_html(path)
+      writeLines(sub("02/04/2024", format(date, "%d/%m/%Y"),
+        readLines(path), fixed = TRUE), path)
+      path
+    },
+    .env = asNamespace("brfutures")
+  )
+  update_brfut("WIN", start = "2024-04-02", end = "2024-04-02",
+    quiet = TRUE, rebuild_agg = FALSE)
+  utils::write.csv(data.frame(filename = "WIN_2024-04-04.html"),
+    file.path(cache, "no-data-html.csv"), row.names = FALSE)
+  update_brfut("WIN", end = "2024-04-05", quiet = TRUE, rebuild_agg = FALSE)
+  expected <- c("2024-04-02", "2024-04-03", "2024-04-05")
+  expect_equal(download_log, expected)
+  saved <- readRDS(file.path(cache, "WIN", "WIN.rds"))
+  expect_equal(sort(unique(saved$date)), as.Date(expected))
+  update_brfut("WIN", end = "2024-04-05", quiet = TRUE, rebuild_agg = FALSE)
+  expect_equal(download_log, expected)
+  expect_equal(readRDS(file.path(cache, "WIN", "WIN.rds")), saved)
+})
+
 test_that("update_brfut skips non-business days", {
   cache <- tempfile("brf-cache-")
   dir.create(cache, recursive = TRUE, showWarnings = FALSE)
