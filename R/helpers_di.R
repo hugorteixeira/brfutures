@@ -68,6 +68,9 @@
 
 .brf_di_get_tick_size <- function(mm, basis_date, rule_change_date = as.Date("2025-08-18")) {
   basis_date <- as.Date(basis_date)
+  if (is.na(basis_date) || !is.finite(mm)) {
+    return(NA_real_)
+  }
   if (basis_date < rule_change_date) {
     if (mm <= 3) 0.001 else if (mm <= 60) 0.005 else 0.010
   } else {

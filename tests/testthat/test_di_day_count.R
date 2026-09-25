@@ -101,3 +101,25 @@ test_that("DI data-frame and xts augmentation honor the official default", {
   expect_equal(as.numeric(official[, "PU_close"]), expected_one_day)
   expect_equal(as.numeric(legacy[, "PU_close"]), expected_two_days)
 })
+
+test_that("DI PU augmentation preserves rows with unresolved dates", {
+  rows <- data.frame(
+    date = as.Date(c("2025-08-15", "2025-08-18", "2025-08-15", "2025-08-18", NA)),
+    maturity = as.Date(c("2031-01-02", "2031-01-02", NA, NA, "2031-01-02")),
+    open = rep(12, 5),
+    high = rep(13, 5),
+    low = rep(11, 5),
+    close = rep(12.5, 5)
+  )
+
+  out <- brfutures:::`.brf_di_add_pu_columns`(rows)
+  expect_identical(out[names(rows)], rows)
+  derived <- c("PU_open", "PU_high", "PU_low", "PU_close", "TickSize", "TickValue")
+  expect_true(all(is.na(out[3:5, derived])))
+  expect_true(all(is.finite(as.matrix(out[1:2, derived]))))
+  expect_equal(out$TickSize[1:2], c(0.010, 0.005))
+
+  days <- bizdays::bizdays(rows$date[1:2], rows$maturity[1:2], "Brazil/ANBIMA")
+  expect_equal(out$PU_close[1:2], round(100000 / 1.125^(days / 252), 2))
+  expect_true(all(out$PU_high[1:2] >= out$PU_low[1:2]))
+})

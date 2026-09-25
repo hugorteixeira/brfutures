@@ -1,3 +1,11 @@
+# brfutures 0.0.6
+
+- Preserve DI rows whose maturity or observation date is unresolved when
+  augmenting rate prices with PU and tick columns. Derived values remain
+  missing instead of aborting the full update or inventing a maturity.
+- Add an offline regression covering mixed known and missing dates across
+  the DI tick-rule change, including unchanged valid-row calculations.
+
 # brfutures 0.0.5
 
 - Fix incremental `update_brfut()` calls without an explicit `start` when
