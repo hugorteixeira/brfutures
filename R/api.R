@@ -16,6 +16,11 @@
 #' endpoint blocks non-browser clients, set a browser-like user-agent via
 #' `options(brfutures.bvbg_user_agent = "...")`.
 #'
+#' Parsed XML days are published as atomic checkpoints. Each affected annual
+#' cache is read and compressed once after the root's daily acquisition batch,
+#' including when `rebuild_agg = FALSE`. Pending checkpoints survive failures
+#' and are reconciled on retry or annual read without downloading completed days.
+#'
 #' @param root Optional character vector with commodity roots (e.g. `"WIN"`).
 #'   When omitted the function updates every root already present inside the
 #'   cache directory.
@@ -56,6 +61,7 @@ update_brfut <- function(root = NULL,
   for (item in roots) {
     .brf_update_root(item, bounds$start, bounds$end, quiet = quiet)
   }
+  .brf_bvbg_flush_pending_years(quiet = quiet)
   if (isTRUE(rebuild_agg)) {
     update_brfut_agg(all = TRUE, rebuild_roots = FALSE, quiet = quiet)
   }
@@ -384,7 +390,9 @@ update_brfut <- function(root = NULL,
     for (raw_day in xml_days) {
       day_date <- as.Date(raw_day, origin = "1970-01-01")
       raw_exists <- file.exists(.brf_bvbg_raw_path(day_date, create = FALSE))
-      parsed <- .brf_bvbg_ensure_parsed_day(day_date, quiet = quiet)
+      parsed <- .brf_bvbg_ensure_parsed_day(
+        day_date, quiet = quiet, update_year = FALSE
+      )
       if (isTRUE(attr(parsed, "brf_no_data"))) {
       if (isTRUE(attr(parsed, "brf_download_failed"))) {
         if (!quiet) {
@@ -415,6 +423,7 @@ update_brfut <- function(root = NULL,
       refresh_dates <- unique(c(refresh_dates, processed_xml_dates))
     }
   }
+  .brf_bvbg_flush_pending_years(quiet = quiet)
   if (!quiet && length(c(newly_downloaded, xml_downloaded))) {
     message("Root ", root, ": downloaded ", length(c(newly_downloaded, xml_downloaded)), " report(s).")
   }

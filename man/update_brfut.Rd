@@ -46,6 +46,11 @@ snapshots are never added together. Override the cutover date with
 `brfutures.bdi_cutover_date` for backwards compatibility). If the ZIP
 endpoint blocks non-browser clients, set a browser-like user-agent via
 `options(brfutures.bvbg_user_agent = "...")`.
+
+Parsed XML days are published as atomic checkpoints. Each affected annual
+cache is read and compressed once after the root's daily acquisition batch,
+including when `rebuild_agg = FALSE`. Pending checkpoints survive failures
+and are reconciled on retry or annual read without downloading completed days.
 }
 \examples{
 \dontrun{

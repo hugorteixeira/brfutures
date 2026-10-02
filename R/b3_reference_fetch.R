@@ -551,6 +551,7 @@
     return(invisible(path))
   }
   staged <- tempfile(".partial-", tmpdir = dirname(path))
+  on.exit(unlink(staged), add = TRUE)
   saveRDS(object, staged, compress = "xz")
   if (isTRUE(immutable) && file.exists(path)) {
     existing <- tryCatch(readRDS(path), error = function(e) NULL)

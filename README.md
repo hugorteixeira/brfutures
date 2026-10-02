@@ -511,6 +511,13 @@ The package organizes your data efficiently:
 
 ### Key Features:
 - 🔒 `update_brfut()` never downloads Excel files and does not redownload a PR archive whose completed manifest and hashes validate
+- Parsed XML days are saved atomically as they complete. The annual BVBG cache
+  is read and compressed once per affected year after the daily acquisition
+  batch, even with `rebuild_agg = FALSE`. Pending-day records preserve recovery
+  after an interruption or failed annual write. Retrying the update or reading
+  the annual cache incorporates completed pending days without downloading them
+  again; an incomplete daily checkpoint requires retrying its date and cannot
+  silently produce a partial year.
 - 🔄 If `root` is omitted, the function updates every root that already has a folder inside the cache directory
 - 📅 Passing `start = NULL` resumes from the first day not yet cached for each root and defaults `end` to `Sys.Date()`
 

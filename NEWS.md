@@ -1,3 +1,10 @@
+# brfutures 0.0.9
+
+- Consolidate pending BVBG daily checkpoints into each annual cache once per
+  acquisition batch, avoiding repeated full-year reads and XZ compression.
+  Daily and annual writes are atomic; pending-day records survive interruption
+  and annual publication failures, and completed days are reused on retry.
+
 # brfutures 0.0.8
 
 - Retain canonical maturity and last-trade rules in cached data-frame getters,

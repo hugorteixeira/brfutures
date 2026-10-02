@@ -415,7 +415,7 @@
   data
 }
 
-.brf_bvbg_save_parsed_day <- function(date, data) {
+.brf_bvbg_save_parsed_day <- function(date, data, mark_year = TRUE) {
   if (!inherits(data, "data.frame")) {
     stop("Parsed BVBG data must be a data frame.", call. = FALSE)
   }
@@ -432,8 +432,48 @@
   attr(data, "brf_parser_version") <- .brf_parser_version()
   attr(data, "brf_parsed_at") <- Sys.time()
   attr(data, "brf_report_date") <- .brf_normalize_date(date)
-  saveRDS(data, path, compress = "xz")
+  # Record the pending year before publishing the daily checkpoint. A process
+  # interruption must never leave a valid-looking annual cache missing a day.
+  if (isTRUE(mark_year)) {
+    pending <- tempfile(
+      paste0(format(date, "%Y-%m-%d"), "-year-pending-"),
+      tmpdir = dirname(path)
+    )
+    if (!file.create(pending)) {
+      stop("Unable to record pending BVBG year update.", call. = FALSE)
+    }
+  }
+  .brf_b3_atomic_save_rds(data, path)
   invisible(path)
+}
+
+.brf_bvbg_pending_year_paths <- function(year) {
+  list.files(
+    .brf_bvbg_year_dir(year, create = FALSE),
+    pattern = "^[0-9]{4}-[0-9]{2}-[0-9]{2}-year-pending-",
+    full.names = TRUE
+  )
+}
+
+.brf_bvbg_pending_day <- function(date) {
+  data <- .brf_bvbg_load_parsed_day(date)
+  if (!inherits(data, "data.frame")) {
+    stop(
+      "Pending BVBG daily cache is incomplete for ", date,
+      "; rerun update_brfut() including this date before reading the year.",
+      call. = FALSE
+    )
+  }
+  data
+}
+
+.brf_bvbg_flush_pending_years <- function(quiet = FALSE) {
+  for (year in .brf_bvbg_list_years()) {
+    if (length(.brf_bvbg_pending_year_paths(year))) {
+      .brf_bvbg_year_data(year, quiet = quiet)
+    }
+  }
+  invisible(NULL)
 }
 
 .brf_bvbg_load_year <- function(year) {
@@ -459,17 +499,11 @@
   path <- .brf_bvbg_year_path(year, create = TRUE)
   attr(data, "brf_parser_version") <- .brf_parser_version()
   attr(data, "brf_parsed_at") <- Sys.time()
-  saveRDS(data, path, compress = "xz")
+  .brf_b3_atomic_save_rds(data, path)
   invisible(path)
 }
 
-.brf_bvbg_update_year <- function(date, day_data) {
-  if (!inherits(day_data, "data.frame")) {
-    return(invisible(NULL))
-  }
-  date <- .brf_normalize_date(date)
-  year <- format(date, "%Y")
-  existing <- .brf_bvbg_load_year(year)
+.brf_bvbg_merge_year_day <- function(existing, date, day_data) {
   if (!inherits(existing, "data.frame")) {
     existing <- .brf_empty_bulletin()
   }
@@ -485,14 +519,43 @@
   } else {
     combined <- .brf_align_bulletin_schema(combined)
   }
+  combined
+}
+
+.brf_bvbg_update_year <- function(date, day_data) {
+  if (!inherits(day_data, "data.frame")) {
+    return(invisible(NULL))
+  }
+  date <- .brf_normalize_date(date)
+  year <- format(date, "%Y")
+  combined <- .brf_bvbg_merge_year_day(
+    .brf_bvbg_load_year(year), date, day_data
+  )
   .brf_bvbg_save_year(year, combined)
   combined
 }
 
 .brf_bvbg_year_data <- function(year, quiet = FALSE) {
+  pending <- .brf_bvbg_pending_year_paths(year)
+  pending_dates <- sort(unique(as.Date(substr(basename(pending), 1L, 10L))))
   data <- .brf_bvbg_load_year(year)
   if (inherits(data, "data.frame")) {
+    if (length(pending)) {
+      # Keep the exact chronological per-day replacement semantics, but read
+      # and compress the annual frame only once for the complete pending batch.
+      for (day_index in seq_along(pending_dates)) {
+        date <- pending_dates[[day_index]]
+        data <- .brf_bvbg_merge_year_day(data, date, .brf_bvbg_pending_day(date))
+      }
+      .brf_bvbg_save_year(year, data)
+      unlink(pending)
+    }
     return(data)
+  }
+  # A failed daily publication keeps its marker. Do not silently rebuild an
+  # incomplete year from the remaining files and clear that evidence.
+  for (date_index in seq_along(pending_dates)) {
+    .brf_bvbg_pending_day(pending_dates[[date_index]])
   }
   year_dir <- .brf_bvbg_year_dir(year, create = TRUE)
   parsed_files <- list.files(year_dir, pattern = "-parsed\\.rds$", full.names = TRUE, ignore.case = TRUE)
@@ -546,7 +609,11 @@
         candidate_dates[[date_index]],
         origin = "1970-01-01"
       )
-      parsed <- .brf_bvbg_ensure_parsed_day(file_date, quiet = quiet)
+      # No valid annual generation exists here. A retry will rebuild it from
+      # all completed days, so these writes need no additional pending markers.
+      parsed <- .brf_bvbg_ensure_parsed_day(
+        file_date, quiet = quiet, update_year = FALSE, mark_year = FALSE
+      )
       if (isTRUE(attr(parsed, "brf_no_data")) || !nrow(parsed)) {
         next
       }
@@ -566,16 +633,22 @@
     data <- .brf_align_bulletin_schema(data)
   }
   .brf_bvbg_save_year(year, data)
+  unlink(pending)
   if (!quiet) {
     message("BVBG: cached year ", year, " with ", nrow(data), " row(s).")
   }
   data
 }
 
-.brf_bvbg_ensure_parsed_day <- function(date, quiet = FALSE) {
+.brf_bvbg_ensure_parsed_day <- function(date, quiet = FALSE,
+                                        update_year = TRUE, mark_year = TRUE) {
   date <- .brf_normalize_date(date)
   cached <- .brf_bvbg_load_parsed_day(date)
   if (inherits(cached, "data.frame")) {
+    if (isTRUE(update_year) &&
+        length(.brf_bvbg_pending_year_paths(format(date, "%Y")))) {
+      .brf_bvbg_year_data(format(date, "%Y"), quiet = quiet)
+    }
     return(cached)
   }
   parsed <- tryCatch(
@@ -606,7 +679,9 @@
   if (isTRUE(attr(parsed, "brf_no_data"))) {
     return(parsed)
   }
-  .brf_bvbg_save_parsed_day(date, parsed)
-  .brf_bvbg_update_year(date, parsed)
+  .brf_bvbg_save_parsed_day(date, parsed, mark_year = mark_year)
+  if (isTRUE(update_year)) {
+    .brf_bvbg_year_data(format(date, "%Y"), quiet = quiet)
+  }
   parsed
 }
