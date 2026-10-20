@@ -439,7 +439,9 @@
     }
     df[cols]
   })
-  out <- do.call(rbind, filled)
+  # Row names are discarded below. Avoid allocating and uniquifying millions
+  # of temporary labels during annual assembly and root-cache updates.
+  out <- do.call(rbind, c(unname(filled), list(make.row.names = FALSE)))
   rownames(out) <- NULL
   out
 }

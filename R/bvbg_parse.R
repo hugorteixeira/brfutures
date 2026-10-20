@@ -504,22 +504,60 @@
 }
 
 .brf_bvbg_merge_year_day <- function(existing, date, day_data) {
+  .brf_bvbg_merge_year_days(existing, date, list(day_data))
+}
+
+# Assemble one output column at a time. The ordinary data-frame bind followed
+# by row ordering otherwise retains several complete copies of the year.
+.brf_bvbg_bind_ordered <- function(frames, rows) {
+  cols <- unique(unlist(lapply(frames, names), use.names = FALSE))
+  bind_column <- function(col) {
+    pieces <- lapply(seq_along(frames), function(i) {
+      present <- col %in% names(frames[[i]])
+      if (present && !is.null(dim(frames[[i]][[col]]))) {
+        return(frames[[i]][rows[[i]], col, drop = FALSE])
+      }
+      values <- if (present) setNames(list(frames[[i]][[col]][rows[[i]]]), col) else list()
+      structure(values, class = "data.frame", row.names = .set_row_names(length(rows[[i]])))
+    })
+    .brf_bind_rows(pieces)[[col]]
+  }
+  dates <- as.Date(bind_column("date"))
+  codes <- bind_column("contract_code")
+  ordering <- order(dates, codes)
+  out <- vector("list", length(cols))
+  names(out) <- cols
+  for (i in seq_along(cols)) {
+    col <- cols[[i]]
+    out[[i]] <- if (col == "date") dates[ordering] else if (col == "contract_code") {
+      codes[ordering]
+    } else bind_column(col)[ordering]
+    if (i %% 8L == 0L) gc(verbose = FALSE)
+  }
+  # Preserve the frame-level metadata chosen by the existing binder as well
+  # as vector classes. Only row names are an incidental assembly index.
+  prototype <- .brf_bind_rows(lapply(seq_along(frames), function(i) {
+    frames[[i]][utils::head(rows[[i]], 1L), , drop = FALSE]
+  }))
+  attributes(out) <- attributes(prototype)
+  attr(out, "row.names") <- .set_row_names(length(ordering))
+  .brf_align_bulletin_schema(out)
+}
+
+.brf_bvbg_merge_year_days <- function(existing, dates, day_data) {
   if (!inherits(existing, "data.frame")) {
     existing <- .brf_empty_bulletin()
   }
-  if (nrow(existing)) {
-    existing$date <- as.Date(existing$date)
-    existing <- existing[!(existing$date %in% date), , drop = FALSE]
-  }
-  combined <- .brf_bind_rows(list(existing, day_data))
-  if (nrow(combined)) {
-    combined$date <- as.Date(combined$date)
-    combined <- .brf_align_bulletin_schema(combined)
-    combined <- combined[order(combined$date, combined$contract_code), , drop = FALSE]
-  } else {
-    combined <- .brf_align_bulletin_schema(combined)
-  }
-  combined
+  existing$date <- as.Date(existing$date)
+  stopifnot(length(dates) == length(day_data))
+  frames <- c(list(existing), day_data)
+  rows <- lapply(seq_along(frames), function(i) {
+    # A later report replaces its entire trade date, including rows supplied
+    # by an earlier multi-date report. Retain the original chronological rule.
+    later <- dates[seq_along(dates) >= i]
+    which(!as.Date(frames[[i]]$date) %in% later)
+  })
+  .brf_bvbg_bind_ordered(frames, rows)
 }
 
 .brf_bvbg_update_year <- function(date, day_data) {
@@ -541,12 +579,11 @@
   data <- .brf_bvbg_load_year(year)
   if (inherits(data, "data.frame")) {
     if (length(pending)) {
-      # Keep the exact chronological per-day replacement semantics, but read
-      # and compress the annual frame only once for the complete pending batch.
-      for (day_index in seq_along(pending_dates)) {
-        date <- pending_dates[[day_index]]
-        data <- .brf_bvbg_merge_year_day(data, date, .brf_bvbg_pending_day(date))
-      }
+      # Validate every daily checkpoint before replacing any annual data.
+      data <- .brf_bvbg_merge_year_days(
+        data, pending_dates, lapply(pending_dates, .brf_bvbg_pending_day)
+      )
+      gc(verbose = FALSE)
       .brf_bvbg_save_year(year, data)
       unlink(pending)
     }
@@ -623,15 +660,11 @@
   if (!length(frames)) {
     data <- .brf_empty_bulletin()
   } else {
-    data <- .brf_bind_rows(frames)
+    data <- .brf_bvbg_bind_ordered(frames, lapply(frames, function(x) seq_len(nrow(x))))
   }
-  if (nrow(data)) {
-    data$date <- as.Date(data$date)
-    data <- .brf_align_bulletin_schema(data)
-    data <- data[order(data$date, data$contract_code), , drop = FALSE]
-  } else {
-    data <- .brf_align_bulletin_schema(data)
-  }
+  frames <- NULL
+  data <- .brf_align_bulletin_schema(data)
+  gc(verbose = FALSE)
   .brf_bvbg_save_year(year, data)
   unlink(pending)
   if (!quiet) {

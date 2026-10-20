@@ -518,6 +518,12 @@ The package organizes your data efficiently:
   the annual cache incorporates completed pending days without downloading them
   again; an incomplete daily checkpoint requires retrying its date and cannot
   silently produce a partial year.
+- Annual assembly combines all pending dates once, one column at a time,
+  preserving chronological replacement, sorting, column types and provenance.
+  Existing XML days are reused only after comparing their complete normalized
+  rows with the root cache. Internal gaps and corrected cached days are still
+  merged; maximum dates do not establish complete coverage. No annual/root
+  cache format migration is required.
 - 🔄 If `root` is omitted, the function updates every root that already has a folder inside the cache directory
 - 📅 Passing `start = NULL` resumes from the first day not yet cached for each root and defaults `end` to `Sys.Date()`
 

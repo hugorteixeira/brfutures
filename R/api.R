@@ -20,6 +20,11 @@
 #' cache is read and compressed once after the root's daily acquisition batch,
 #' including when `rebuild_agg = FALSE`. Pending checkpoints survive failures
 #' and are reconciled on retry or annual read without downloading completed days.
+#' Annual assembly combines the pending batch one column at a time to limit
+#' full-history copies. Existing XML days are compared with the normalized root
+#' cache, including provenance: unchanged days are reused, while internal gaps
+#' and corrected cached observations are merged. This does not replace source
+#' validation with a maximum-date checkpoint.
 #'
 #' @param root Optional character vector with commodity roots (e.g. `"WIN"`).
 #'   When omitted the function updates every root already present inside the
@@ -60,6 +65,7 @@ update_brfut <- function(root = NULL,
   bounds <- .brf_normalize_date_bounds(start, end)
   for (item in roots) {
     .brf_update_root(item, bounds$start, bounds$end, quiet = quiet)
+    gc(verbose = FALSE)
   }
   .brf_bvbg_flush_pending_years(quiet = quiet)
   if (isTRUE(rebuild_agg)) {
@@ -206,6 +212,21 @@ update_brfut <- function(root = NULL,
   }
   combined <- .brf_align_bulletin_schema(combined)
   combined
+}
+
+# Compare the complete normalized day, including source provenance. Merely
+# advancing to the maximum XML date would skip gaps and corrected checkpoints.
+.brf_xml_day_matches_root <- function(root, day, current, indices) {
+  fresh <- .brf_prepare_root_data(root, .brf_parsed_strip_attrs(day))
+  if (nrow(fresh) != length(indices)) return(FALSE)
+  if (!nrow(fresh)) return(TRUE)
+  stored <- current[indices, , drop = FALSE]
+  joined <- .brf_bind_rows(list(stored, fresh))
+  if (!setequal(names(joined), names(stored))) return(FALSE)
+  fresh_indices <- nrow(stored) + seq_len(nrow(fresh))
+  all(vapply(names(stored), function(col) {
+    identical(stored[[col]], joined[[col]][fresh_indices])
+  }, logical(1L)))
 }
 
 .brf_update_root <- function(root, start, end, quiet = FALSE) {
@@ -387,6 +408,9 @@ update_brfut <- function(root = NULL,
   }
   if (length(xml_days)) {
     processed_xml_dates <- as.Date(character())
+    current_xml <- which(as.Date(current$date) >= cutover & as.Date(current$date) <= end)
+    current_by_date <- split(current_xml, as.character(current$date[current_xml]))
+    reused_xml <- 0L
     for (raw_day in xml_days) {
       day_date <- as.Date(raw_day, origin = "1970-01-01")
       raw_exists <- file.exists(.brf_bvbg_raw_path(day_date, create = FALSE))
@@ -413,14 +437,22 @@ update_brfut <- function(root = NULL,
       if (!raw_exists && file.exists(.brf_bvbg_raw_path(day_date, create = FALSE))) {
         xml_downloaded <- c(xml_downloaded, as.character(day_date))
       }
-      processed_xml_dates <- unique(c(processed_xml_dates, day_date))
       root_subset <- .brf_bvbg_filter_root_shared(parsed, root)
+      if (.brf_xml_day_matches_root(root, root_subset, current,
+                                   current_by_date[[as.character(day_date)]])) {
+        reused_xml <- reused_xml + 1L
+        next
+      }
+      processed_xml_dates <- unique(c(processed_xml_dates, day_date))
       if (!isTRUE(attr(root_subset, "brf_no_data")) && nrow(root_subset)) {
         parsed_updates[[length(parsed_updates) + 1L]] <- .brf_parsed_strip_attrs(root_subset)
       }
     }
     if (length(processed_xml_dates)) {
       refresh_dates <- unique(c(refresh_dates, processed_xml_dates))
+    }
+    if (!quiet && reused_xml > 0L) {
+      message("Root ", root, ": reused ", reused_xml, " verified XML day(s).")
     }
   }
   .brf_bvbg_flush_pending_years(quiet = quiet)

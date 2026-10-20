@@ -51,6 +51,11 @@ Parsed XML days are published as atomic checkpoints. Each affected annual
 cache is read and compressed once after the root's daily acquisition batch,
 including when `rebuild_agg = FALSE`. Pending checkpoints survive failures
 and are reconciled on retry or annual read without downloading completed days.
+Annual assembly combines the pending batch one column at a time to limit
+full-history copies. Existing XML days are compared with the normalized root
+cache, including provenance: unchanged days are reused, while internal gaps
+and corrected cached observations are merged. This does not replace source
+validation with a maximum-date checkpoint.
 }
 \examples{
 \dontrun{

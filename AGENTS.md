@@ -20,3 +20,10 @@ deterministic assembly of dated and continuous futures data.
 
 Tests are offline and deterministic: mock downloads, use synthetic fixtures and
 never require credentials, broker connections or trading services.
+
+Annual BVBG assembly operates by column over the complete pending batch.
+Preserve chronological replacement for multi-date reports, existing column
+coercions and atomic write/pending-marker recovery. Root XML reuse requires
+equality of normalized observations and provenance, not just a maximum date.
+Verify internal gaps, corrections, interruption recovery and realistic full
+update memory before changing these paths.
