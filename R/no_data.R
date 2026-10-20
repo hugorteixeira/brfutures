@@ -243,7 +243,7 @@
   } else {
     unique(new_entries)
   }
-  utils::write.csv(merged, file = path, row.names = FALSE, quote = TRUE)
+  .brf_no_data_write(merged, path)
   if (!isTRUE(quiet)) {
     message("Root ", root, ": recorded ", length(dates), " no-data XML day(s).")
   }
@@ -269,7 +269,7 @@
   } else {
     unique(new_entries)
   }
-  utils::write.csv(merged, file = path, row.names = FALSE, quote = TRUE)
+  .brf_no_data_write(merged, path)
   if (!isTRUE(quiet)) {
     message("Root ", root, ": recorded ", length(dates), " no-data ZIP day(s).")
   }

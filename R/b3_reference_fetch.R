@@ -74,12 +74,19 @@
       stop("B3 reference download hook did not create an archive.", call. = FALSE)
     }
   } else {
+    request_timeout <- getOption("brfutures.b3_reference_timeout", 60)
+    if (!is.numeric(request_timeout) || length(request_timeout) != 1L ||
+        !is.finite(request_timeout) || request_timeout <= 0) {
+      stop("brfutures.b3_reference_timeout must be a positive number of seconds.", call. = FALSE)
+    }
     response <- tryCatch(
       httr::RETRY(
         verb = "GET",
         url = url,
         httr::user_agent(.brf_bvbg_user_agent()),
         httr::accept("application/zip,application/octet-stream,*/*"),
+        httr::timeout(request_timeout),
+        httr::config(connecttimeout = min(10, request_timeout)),
         times = 3,
         pause_base = 1,
         httr::write_disk(destination, overwrite = TRUE),

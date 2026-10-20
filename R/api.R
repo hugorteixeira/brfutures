@@ -26,6 +26,13 @@
 #' and corrected cached observations are merged. This does not replace source
 #' validation with a maximum-date checkpoint.
 #'
+#' XML/ZIP failures remain retryable, with a shared six-hour cooldown across
+#' roots. Incremental updates revisit these gaps even after newer dates were
+#' cached. Reports from the latest seven calendar days are checked once per
+#' local calendar day for newer B3 snapshots. Failed checks retain valid cached
+#' observations; older snapshots and reports with the wrong trade date are
+#' rejected. These checks run during acquisition, never during offline getters.
+#'
 #' @param root Optional character vector with commodity roots (e.g. `"WIN"`).
 #'   When omitted the function updates every root already present inside the
 #'   cache directory.
@@ -242,23 +249,9 @@ update_brfut <- function(root = NULL,
     cutover <- .brf_xml_cutover_date()
     skip_dates_html <- skip_dates_html[!is.na(skip_dates_html) & skip_dates_html < cutover]
   }
-  skip_dates_xml <- unique(skip_entries_xml$date)
-  if (length(skip_dates_xml)) {
-    xml_present <- vapply(skip_dates_xml, function(date) {
-      file.exists(.brf_bvbg_parsed_path(date, create = FALSE))
-    }, logical(1))
-    skip_dates_xml <- skip_dates_xml[!xml_present]
-  }
-  skip_dates_zip <- unique(skip_entries_zip$date)
-  if (length(skip_dates_zip)) {
-    xml_present <- vapply(skip_dates_zip, function(date) {
-      file.exists(.brf_bvbg_parsed_path(date, create = FALSE)) ||
-        file.exists(.brf_bvbg_raw_path(date, create = FALSE))
-    }, logical(1))
-    skip_dates_zip <- skip_dates_zip[!xml_present]
-  }
-  skip_dates <- unique(c(skip_dates_html, skip_dates_xml, skip_dates_zip))
-  skip_dates <- skip_dates[!is.na(skip_dates)]
+  # XML/ZIP failures are retryable observations, never permanent exclusions.
+  unavailable_dates <- unique(c(skip_entries_xml$date, skip_entries_zip$date))
+  skip_dates <- skip_dates_html[!is.na(skip_dates_html)]
   register_no_data_html <- function(paths) {
     paths <- unique(paths)
     if (!length(paths)) {
@@ -326,13 +319,17 @@ update_brfut <- function(root = NULL,
   if (is.na(start_date)) {
     start_date <- end
   }
-  if (start_date > end) {
-    if (!quiet) {
-      message("Root ", root, ": nothing to update (start after end).")
-    }
-    return(invisible(NULL))
+  target_days <- if (start_date <= end) .brf_date_seq(start_date, end) else as.Date(character())
+  if (is.null(start)) {
+    # Revisit unresolved gaps even after a newer root checkpoint was published.
+    # Also recheck recently cached sessions for later/corrected B3 snapshots.
+    first <- if (nrow(current)) min(as.Date(current$date), na.rm = TRUE) else start_date
+    recent <- as.Date(current$date)
+    today <- as.Date(.brf_bvbg_now(), tz = "America/Sao_Paulo")
+    recent <- recent[recent >= today - 7 & recent <= end]
+    retry <- unavailable_dates[unavailable_dates >= first & unavailable_dates <= end]
+    target_days <- sort(unique(c(target_days, recent, retry)))
   }
-  target_days <- .brf_date_seq(start_date, end)
   if (length(skip_dates)) {
     target_days <- target_days[!(target_days %in% skip_dates)]
   }
@@ -415,23 +412,15 @@ update_brfut <- function(root = NULL,
       day_date <- as.Date(raw_day, origin = "1970-01-01")
       raw_exists <- file.exists(.brf_bvbg_raw_path(day_date, create = FALSE))
       parsed <- .brf_bvbg_ensure_parsed_day(
-        day_date, quiet = quiet, update_year = FALSE
+        day_date, quiet = quiet, update_year = FALSE, revalidate = TRUE
       )
       if (isTRUE(attr(parsed, "brf_no_data"))) {
-      if (isTRUE(attr(parsed, "brf_download_failed"))) {
-        if (!quiet) {
-          message("BVBG: unable to download XML for ", format(day_date, "%Y-%m-%d"))
+        if (isTRUE(attr(parsed, "brf_download_failed"))) {
+          .brf_register_no_data_zip("ALL", day_date, quiet = quiet)
+        } else {
+          .brf_register_no_data_xml("ALL", day_date, quiet = quiet)
         }
-        .brf_register_no_data_zip("ALL", day_date, quiet = quiet)
-        skip_dates_zip <- unique(c(skip_dates_zip, day_date))
-        skip_dates <- unique(c(skip_dates, day_date))
-        refresh_dates <- unique(c(refresh_dates, day_date))
-      } else {
-        .brf_register_no_data_xml("ALL", day_date, quiet = quiet)
-        skip_dates_xml <- unique(c(skip_dates_xml, day_date))
-        skip_dates <- unique(c(skip_dates, day_date))
-          refresh_dates <- unique(c(refresh_dates, day_date))
-        }
+        # A failed/empty source check cannot erase a previously valid root day.
         next
       }
       if (!raw_exists && file.exists(.brf_bvbg_raw_path(day_date, create = FALSE))) {

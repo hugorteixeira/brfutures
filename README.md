@@ -2,6 +2,15 @@
 
 > **Efficiently download and cache daily OHLCV futures data from Brazil's B3 exchange** 🇧🇷
 
+Incremental XML updates retry unavailable report dates with a shared six-hour
+cooldown, including gaps behind a newer cache checkpoint. The latest seven
+calendar days are rechecked once per local day for corrected B3 snapshots.
+Failed refreshes preserve the valid cache; older snapshots and wrong-date
+reports cannot replace it. Offline getters never trigger these source checks.
+Archive HTTP requests have a 60-second transfer deadline per attempt and a
+10-second connection deadline. `options(brfutures.b3_reference_timeout = 120)`
+can raise the transfer deadline for a slower connection.
+
 <p align="center">
   <a href="https://cran.r-project.org/">
     <img src="https://img.shields.io/badge/R-%3E%3D%204.1.0-276DC3?logo=r&logoColor=white" alt="R version badge" />

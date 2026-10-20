@@ -76,6 +76,43 @@ price_report_archive <- function(directory, prefix, xml_paths) {
   outer
 }
 
+test_that("refresh refuses older or wrong-date reports without replacing the good manifest", {
+  cache <- tempfile("report-refresh-")
+  dir.create(cache)
+  withr::defer(unlink(cache, recursive = TRUE))
+  date <- "2026-10-16"
+  rows <- data.frame(date = date, contract = "WINZ26", instrument_id = "400000000001",
+    trades = 1, contracts = 1, volume = 100, open_interest = 1,
+    open = 100, high = 100, low = 100, average = 100, close = 100, settlement = 100)
+  make_archive <- function(label, at, trade_date) {
+    dir <- file.path(cache, label)
+    dir.create(dir)
+    rows$date <- trade_date
+    xml <- file.path(dir, paste0("BVBG.086_", label, ".xml"))
+    writeLines(price_report_xml("BVBG.086.01", at, rows), xml)
+    price_report_archive(dir, "PR261016", xml)
+  }
+  archives <- c(
+    good = make_archive("good", "2026-10-16T23:30:00Z", date),
+    old = make_archive("old", "2026-10-16T20:00:00Z", date),
+    wrong = make_archive("wrong", "2026-10-17T01:00:00Z", "2026-10-19"))
+  selected <- "good"
+  withr::local_options(list(brfutures.b3_reference_download_hook = function(url, destination) {
+    file.copy(archives[[selected]], destination)
+  }))
+  reference <- file.path(cache, "reference")
+  good <- brf_b3_prices_fetch(date, cache_dir = reference, quiet = TRUE)
+  manifest <- file.path(reference, "prices", "full", date, "manifest.rds")
+  before <- digest::digest(file = manifest)
+  selected <- "old"
+  expect_error(brf_b3_prices_fetch(date, cache_dir = reference, refresh = TRUE, quiet = TRUE), "older snapshot")
+  expect_identical(digest::digest(file = manifest), before)
+  selected <- "wrong"
+  expect_error(brf_b3_prices_fetch(date, cache_dir = reference, refresh = TRUE, quiet = TRUE), "requested trade date")
+  expect_identical(digest::digest(file = manifest), before)
+  expect_identical(brf_b3_prices_fetch(date, cache_dir = reference, quiet = TRUE), good)
+})
+
 test_that("official non-futures identities do not hide other instruments", {
   rows <- data.frame(
     contract_code = c("SOLN39", "SOLN39", "SOLV26", "SOLN39", NA),

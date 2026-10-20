@@ -674,20 +674,29 @@
 }
 
 .brf_bvbg_ensure_parsed_day <- function(date, quiet = FALSE,
-                                        update_year = TRUE, mark_year = TRUE) {
+                                        update_year = TRUE, mark_year = TRUE,
+                                        revalidate = FALSE) {
   date <- .brf_normalize_date(date)
   cached <- .brf_bvbg_load_parsed_day(date)
-  if (inherits(cached, "data.frame")) {
+  refresh <- isTRUE(revalidate) && .brf_bvbg_refresh_due(date, cached)
+  if (inherits(cached, "data.frame") && !refresh) {
     if (isTRUE(update_year) &&
         length(.brf_bvbg_pending_year_paths(format(date, "%Y")))) {
       .brf_bvbg_year_data(format(date, "%Y"), quiet = quiet)
     }
     return(cached)
   }
+  if (!inherits(cached, "data.frame") && !.brf_bvbg_retry_due(date)) {
+    out <- .brf_empty_bulletin()
+    attr(out, "brf_no_data") <- TRUE
+    attr(out, "brf_download_failed") <- TRUE
+    return(out)
+  }
   parsed <- tryCatch(
     brf_b3_prices_fetch(
       date,
       report = "full",
+      refresh = refresh,
       quiet = quiet
     ),
     error = function(error) {
@@ -703,6 +712,8 @@
     }
   )
   if (!inherits(parsed, "data.frame")) {
+    .brf_b3_atomic_save_rds(list(at = .brf_bvbg_now(), status = "unavailable"), .brf_bvbg_attempt_path(date))
+    if (inherits(cached, "data.frame")) return(cached)
     out <- .brf_empty_bulletin()
     attr(out, "brf_no_data") <- TRUE
     attr(out, "brf_download_failed") <- TRUE
@@ -710,9 +721,13 @@
   }
   parsed <- .brf_bvbg_prepare_shared_data(parsed, file_date = date)
   if (isTRUE(attr(parsed, "brf_no_data"))) {
+    .brf_b3_atomic_save_rds(list(at = .brf_bvbg_now(), status = "empty"), .brf_bvbg_attempt_path(date))
+    if (inherits(cached, "data.frame")) return(cached)
     return(parsed)
   }
   .brf_bvbg_save_parsed_day(date, parsed, mark_year = mark_year)
+  .brf_bvbg_clear_unavailable(date)
+  .brf_b3_atomic_save_rds(list(at = .brf_bvbg_now(), status = "available"), .brf_bvbg_attempt_path(date))
   if (isTRUE(update_year)) {
     .brf_bvbg_year_data(format(date, "%Y"), quiet = quiet)
   }

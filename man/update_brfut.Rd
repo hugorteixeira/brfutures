@@ -56,6 +56,13 @@ full-history copies. Existing XML days are compared with the normalized root
 cache, including provenance: unchanged days are reused, while internal gaps
 and corrected cached observations are merged. This does not replace source
 validation with a maximum-date checkpoint.
+
+XML/ZIP failures remain retryable, with a shared six-hour cooldown across
+roots. Incremental updates revisit these gaps even after newer dates were
+cached. Reports from the latest seven calendar days are checked once per
+local calendar day for newer B3 snapshots. Failed checks retain valid cached
+observations; older snapshots and reports with the wrong trade date are
+rejected. These checks run during acquisition, never during offline getters.
 }
 \examples{
 \dontrun{

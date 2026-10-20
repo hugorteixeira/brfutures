@@ -796,6 +796,7 @@
                                               cache_dir,
                                               day_dir,
                                               quiet = FALSE) {
+  previous <- .brf_b3_price_manifest_read(day_dir)
   work_dir <- tempfile("price-fetch-", tmpdir = cache_dir)
   dir.create(work_dir, recursive = TRUE, showWarnings = FALSE)
   on.exit({
@@ -814,6 +815,11 @@
     quiet = quiet
   )
   payload <- .brf_b3_find_nested_payload(archive$path, kind, work_dir)
+  previous_at <- previous$selected_snapshot_created_at
+  if (length(previous_at) == 1L && !is.na(previous_at) &&
+      (is.na(payload$created_at) || payload$created_at < previous_at)) {
+    stop("B3 returned an older snapshot; retaining the verified cache for ", date, ".", call. = FALSE)
+  }
   raw_sha256 <- .brf_b3_source_file_sha256(payload$path)
   snapshot_dir <- file.path(day_dir, "snapshot")
   snapshot <- file.path(snapshot_dir, paste0(raw_sha256, ".xml.gz"))
@@ -829,6 +835,10 @@
     source_url = archive$source_url,
     quiet = quiet
   )
+  if (!as.Date(date) %in% as.Date(data$date)) {
+    stop("B3 price report does not contain the requested trade date ", date,
+         "; retaining the previous cache.", call. = FALSE)
+  }
   stored <- .brf_b3_price_store_parsed(data, day_dir)
   manifest <- list(
     schema_version = .brf_b3_price_cache_schema_version(),
